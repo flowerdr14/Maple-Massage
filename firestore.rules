@@ -77,8 +77,8 @@ service cloud.firestore {
     }
 
     function isValidMessage(data) {
-      return hasOnlyAllowedFields(['text', 'senderId', 'senderName', 'senderPhoto', 'channelId', 'timestamp', 'participants', 'channelName', 'isGroup']) &&
-             data.text is string && data.text.size() > 0 && data.text.size() <= 1000 &&
+      return hasOnlyAllowedFields(['text', 'senderId', 'senderName', 'senderPhoto', 'channelId', 'timestamp', 'participants', 'channelName', 'isGroup', 'file']) &&
+             data.text is string && data.text.size() <= 1000 &&
              data.senderId is string && data.senderId.size() > 0 &&
              data.senderName is string && data.senderName.size() > 0 && data.senderName.size() <= 50 &&
              (!('senderPhoto' in data) || (data.senderPhoto is string && data.senderPhoto.size() <= 500 && isValidUrl(data.senderPhoto))) &&
@@ -86,6 +86,7 @@ service cloud.firestore {
              (!('participants' in data) || data.participants is list) &&
              (!('channelName' in data) || data.channelName is string) &&
              (!('isGroup' in data) || data.isGroup is bool) &&
+             (!('file' in data) || data.file == null || data.file is map) &&
              data.timestamp is timestamp;
     }
 

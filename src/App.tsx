@@ -483,7 +483,7 @@ export default function App() {
     return (
       <div className="flex h-screen bg-gray-100 items-center justify-center font-sans">
         <div className="bg-white p-8 rounded-lg shadow-md w-96 border border-black">
-          <h1 className="text-2xl font-bold text-center mb-6 text-[#5cb85c]">Maple Massenger</h1>
+          <h1 className="text-2xl font-bold text-center mb-6 text-[#5cb85c]">Maple Messenger</h1>
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
               <label className="block text-sm font-bold mb-1">아이디</label>
