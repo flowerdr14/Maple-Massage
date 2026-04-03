@@ -1,0 +1,42 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the messenger application.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The unique user ID." },
+        "displayName": { "type": "string", "description": "The user's display name." },
+        "email": { "type": "string", "format": "email", "description": "The user's email address." },
+        "photoURL": { "type": "string", "description": "URL to the user's profile photo." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the user account was created." },
+        "lastSeen": { "type": "string", "format": "date-time", "description": "When the user was last active." }
+      },
+      "required": ["uid", "displayName", "email", "createdAt"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A chat message in a channel.",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string", "description": "The message content." },
+        "senderId": { "type": "string", "description": "The UID of the user who sent the message." },
+        "senderName": { "type": "string", "description": "The display name of the sender." },
+        "senderPhoto": { "type": "string", "description": "The photo URL of the sender." },
+        "channelId": { "type": "string", "description": "The ID of the channel this message belongs to." },
+        "timestamp": { "type": "string", "format": "date-time", "description": "When the message was sent." }
+      },
+      "required": ["text", "senderId", "senderName", "channelId", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Stores user profiles."
+    },
+    "/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/Message" },
+      "description": "Stores all chat messages."
+    }
+  }
+}
