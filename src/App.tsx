@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { User, ChevronDown, ChevronRight, Plus, Send, MessageSquare, Users, X, Check, Paperclip, FileText } from 'lucide-react';
+import { User, ChevronDown, ChevronRight, Plus, Send, MessageSquare, Users, X, Check, Paperclip, FileText, Copy, Forward, Trash2, Reply } from 'lucide-react';
 import { db } from './firebase';
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, where } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, where, deleteDoc, doc } from 'firebase/firestore';
 
 type CustomUser = { name: string, id: string, pw: string, photo?: string, role?: string };
 
@@ -164,6 +164,7 @@ export default function App() {
   const [loginId, setLoginId] = useState('');
   const [loginPw, setLoginPw] = useState('');
   const [loginError, setLoginError] = useState('');
+  const [isAutoLogin, setIsAutoLogin] = useState(false);
 
   // Chat State
   const [messages, setMessages] = useState<any[]>([]);
@@ -171,15 +172,17 @@ export default function App() {
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [chatRooms, setChatRooms] = useState<ChatRoom[]>([]);
   const [selectedFile, setSelectedFile] = useState<{name: string, type: string, data: string, size: number} | null>(null);
+  const [replyingTo, setReplyingTo] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Modal State
-  const [modalType, setModalType] = useState<'1:1' | 'bulk' | 'group' | null>(null);
+  const [modalType, setModalType] = useState<'1:1' | 'bulk' | 'group' | 'forward' | null>(null);
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [bulkMessageText, setBulkMessageText] = useState('');
   const [groupNameInput, setGroupNameInput] = useState('');
   const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [forwardMessage, setForwardMessage] = useState<any>(null);
 
   // Profile State
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -197,7 +200,7 @@ export default function App() {
 
     setUsersList(merged);
 
-    const savedUser = localStorage.getItem('haesol_user');
+    const savedUser = sessionStorage.getItem('haesol_user') || localStorage.getItem('haesol_user');
     if (savedUser) {
       const parsed = JSON.parse(savedUser);
       if (!deletedUsers.includes(parsed.id)) {
@@ -205,6 +208,7 @@ export default function App() {
         setCustomUser(latestUser);
       } else {
         localStorage.removeItem('haesol_user');
+        sessionStorage.removeItem('haesol_user');
       }
     }
   }, []);
@@ -279,7 +283,11 @@ export default function App() {
     const user = usersList.find(u => u.id === loginId && u.pw === loginPw);
     if (user) {
       setCustomUser(user);
-      localStorage.setItem('haesol_user', JSON.stringify(user));
+      if (isAutoLogin) {
+        localStorage.setItem('haesol_user', JSON.stringify(user));
+      } else {
+        sessionStorage.setItem('haesol_user', JSON.stringify(user));
+      }
     } else {
       setLoginError('아이디 또는 비밀번호가 일치하지 않습니다.');
     }
@@ -289,13 +297,18 @@ export default function App() {
     setCustomUser(null);
     setActiveChannelId(null);
     localStorage.removeItem('haesol_user');
+    sessionStorage.removeItem('haesol_user');
   };
 
   const handleSaveProfile = () => {
     if (!customUser) return;
     const updatedUser = { ...customUser, pw: profileEdit.pw, photo: profileEdit.photo, role: profileEdit.role };
     setCustomUser(updatedUser);
-    localStorage.setItem('haesol_user', JSON.stringify(updatedUser));
+    if (localStorage.getItem('haesol_user')) {
+      localStorage.setItem('haesol_user', JSON.stringify(updatedUser));
+    } else {
+      sessionStorage.setItem('haesol_user', JSON.stringify(updatedUser));
+    }
 
     const dbUsers = JSON.parse(localStorage.getItem('haesol_users_db') || '[]');
     const existingIdx = dbUsers.findIndex((u: any) => u.id === customUser.id);
@@ -323,7 +336,11 @@ export default function App() {
     setUsersList(prev => prev.filter(u => u.id !== customUser.id));
     setConfirmDelete(false);
     setIsProfileModalOpen(false);
-    handleLogout();
+    
+    setCustomUser(null);
+    setActiveChannelId(null);
+    localStorage.removeItem('haesol_user');
+    sessionStorage.removeItem('haesol_user');
   };
 
   const toggleDept = (deptName: string) => {
@@ -374,6 +391,7 @@ export default function App() {
       await addDoc(collection(db, 'messages'), {
         text,
         file: fileToSend,
+        replyTo: replyingTo ? { id: replyingTo.id, text: replyingTo.text || '(파일)', senderName: replyingTo.senderName } : null,
         senderId: customUser.id,
         senderName: customUser.name,
         channelId: activeChannelId,
@@ -382,6 +400,7 @@ export default function App() {
         isGroup: activeRoom.isGroup,
         timestamp: serverTimestamp(),
       });
+      setReplyingTo(null);
     } catch (error) {
       console.error("Error sending message:", error);
     }
@@ -446,7 +465,57 @@ export default function App() {
       closeModal();
       // Switch to messenger view
       setViewMode('messenger');
+    } else if (modalType === 'forward') {
+      if (selectedUsers.length === 0 || !forwardMessage) return;
+      
+      for (const otherId of selectedUsers) {
+        const channelId = [customUser.id, otherId].sort().join('_');
+        try {
+          await addDoc(collection(db, 'messages'), {
+            text: forwardMessage.text || '',
+            file: forwardMessage.file || null,
+            senderId: customUser.id,
+            senderName: customUser.name,
+            channelId: channelId,
+            participants: [customUser.id, otherId],
+            channelName: '',
+            isGroup: false,
+            timestamp: serverTimestamp(),
+          });
+        } catch (error) {
+          console.error("Error forwarding message:", error);
+        }
+      }
+      closeModal();
+      setForwardMessage(null);
+      setViewMode('messenger');
     }
+  };
+
+  const handleDeleteMessage = async (msgId: string) => {
+    if (window.confirm('메시지를 삭제하시겠습니까?')) {
+      try {
+        await deleteDoc(doc(db, 'messages', msgId));
+      } catch (error) {
+        console.error("Error deleting message:", error);
+      }
+    }
+  };
+
+  const handleCopyMessage = (text: string) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+      alert('메시지가 복사되었습니다.');
+    }).catch(err => {
+      console.error('Failed to copy text: ', err);
+    });
+  };
+
+  const openForwardModal = (msg: any) => {
+    setForwardMessage(msg);
+    setModalType('forward');
+    setSelectedUsers([]);
+    setUserSearchQuery('');
   };
 
   const openModal = (type: '1:1' | 'bulk' | 'group') => {
@@ -504,6 +573,16 @@ export default function App() {
                 className="w-full border border-black p-2 rounded outline-none focus:ring-2 focus:ring-[#5cb85c]"
                 placeholder="비밀번호를 입력하세요"
               />
+            </div>
+            <div className="flex items-center gap-2">
+              <input 
+                type="checkbox" 
+                id="autoLogin" 
+                checked={isAutoLogin} 
+                onChange={e => setIsAutoLogin(e.target.checked)} 
+                className="w-4 h-4 text-[#5cb85c] border-black rounded focus:ring-[#5cb85c]"
+              />
+              <label htmlFor="autoLogin" className="text-sm font-bold cursor-pointer">자동 로그인</label>
             </div>
             {loginError && <p className="text-red-500 text-sm font-bold">{loginError}</p>}
             <button type="submit" className="w-full bg-[#5cb85c] text-white font-bold py-2 rounded border border-black hover:bg-green-700">
@@ -678,7 +757,7 @@ export default function App() {
               {isDropdownOpen && (
                 <div className="absolute top-full right-2 mt-1 bg-white border border-black rounded-md shadow-lg z-50 w-32 py-1">
                   <button onClick={() => openModal('1:1')} className="w-full text-left px-3 py-1.5 hover:bg-gray-100 text-sm">1 : 1 메시지</button>
-                  <button onClick={() => { setActiveChannelId('global'); setIsDropdownOpen(false); setSelectedFile(null); }} className="w-full text-left px-3 py-1.5 hover:bg-gray-100 text-sm">전체 메시지</button>
+                  <button onClick={() => { setActiveChannelId('global'); setIsDropdownOpen(false); setSelectedFile(null); setReplyingTo(null); }} className="w-full text-left px-3 py-1.5 hover:bg-gray-100 text-sm">전체 메시지</button>
                   <button onClick={() => openModal('bulk')} className="w-full text-left px-3 py-1.5 hover:bg-gray-100 text-sm">단체 메시지</button>
                   <button onClick={() => openModal('group')} className="w-full text-left px-3 py-1.5 hover:bg-gray-100 text-sm">그룹 메시지</button>
                 </div>
@@ -690,7 +769,7 @@ export default function App() {
               {chatRooms.map(room => (
                 <div 
                   key={room.id}
-                  onClick={() => { setActiveChannelId(room.id); setSelectedFile(null); }}
+                  onClick={() => { setActiveChannelId(room.id); setSelectedFile(null); setReplyingTo(null); }}
                   className={`p-3 border-b border-gray-200 cursor-pointer hover:bg-gray-50 flex flex-col gap-1 ${activeChannelId === room.id ? 'bg-[#e8f5e9]' : ''}`}
                 >
                   <div className="flex justify-between items-center">
@@ -726,25 +805,48 @@ export default function App() {
                         {senderUser?.photo ? <img src={senderUser.photo} alt="profile" className="w-full h-full object-cover" /> : <User size={16} className="text-gray-500" />}
                       </div>
                     )}
-                    <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                    <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group relative`}>
                       <span className="text-xs text-gray-500 mb-1">{msg.senderName} {senderUser?.role ? `(${senderUser.role})` : ''}</span>
-                      <div className={`px-3 py-2 border border-black rounded-lg max-w-[70%] ${isMe ? 'bg-[#dcedc8]' : 'bg-white'}`}>
-                        {msg.file && (
-                          <div className="mb-2">
-                            {msg.file.type.startsWith('image/') ? (
-                              <img src={msg.file.data} alt={msg.file.name} className="max-w-full rounded border border-gray-300 max-h-48 object-contain" />
-                            ) : (
-                              <a href={msg.file.data} download={msg.file.name} className="flex items-center gap-2 p-2 bg-black/5 rounded hover:bg-black/10 transition-colors">
-                                <FileText size={24} className="text-gray-600" />
-                                <div className="flex flex-col overflow-hidden">
-                                  <span className="text-sm font-bold truncate">{msg.file.name}</span>
-                                  <span className="text-xs text-gray-500">{(msg.file.size / 1024).toFixed(1)} KB</span>
-                                </div>
-                              </a>
-                            )}
+                      <div className="flex items-center gap-2">
+                        {isMe && (
+                          <div className="hidden group-hover:flex items-center gap-1 text-gray-400">
+                            {msg.text && <button onClick={() => handleCopyMessage(msg.text)} title="복사"><Copy size={14} className="hover:text-black"/></button>}
+                            <button onClick={() => setReplyingTo(msg)} title="답장"><Reply size={14} className="hover:text-black"/></button>
+                            <button onClick={() => openForwardModal(msg)} title="전달"><Forward size={14} className="hover:text-black"/></button>
+                            <button onClick={() => handleDeleteMessage(msg.id)} title="삭제"><Trash2 size={14} className="hover:text-red-500"/></button>
                           </div>
                         )}
-                        {msg.text && <div className="whitespace-pre-wrap break-words">{msg.text}</div>}
+                        <div className={`px-3 py-2 border border-black rounded-lg max-w-[70%] ${isMe ? 'bg-[#dcedc8]' : 'bg-white'}`}>
+                          {msg.replyTo && (
+                            <div className="mb-2 p-2 bg-black/5 rounded text-sm border-l-2 border-black/20 flex flex-col">
+                              <span className="font-bold text-xs">{msg.replyTo.senderName}</span>
+                              <span className="text-gray-600 truncate">{msg.replyTo.text}</span>
+                            </div>
+                          )}
+                          {msg.file && (
+                            <div className="mb-2">
+                              {msg.file.type.startsWith('image/') ? (
+                                <img src={msg.file.data} alt={msg.file.name} className="max-w-full rounded border border-gray-300 max-h-48 object-contain" />
+                              ) : (
+                                <a href={msg.file.data} download={msg.file.name} className="flex items-center gap-2 p-2 bg-black/5 rounded hover:bg-black/10 transition-colors">
+                                  <FileText size={24} className="text-gray-600" />
+                                  <div className="flex flex-col overflow-hidden">
+                                    <span className="text-sm font-bold truncate">{msg.file.name}</span>
+                                    <span className="text-xs text-gray-500">{(msg.file.size / 1024).toFixed(1)} KB</span>
+                                  </div>
+                                </a>
+                              )}
+                            </div>
+                          )}
+                          {msg.text && <div className="whitespace-pre-wrap break-words">{msg.text}</div>}
+                        </div>
+                        {!isMe && (
+                          <div className="hidden group-hover:flex items-center gap-1 text-gray-400">
+                            {msg.text && <button onClick={() => handleCopyMessage(msg.text)} title="복사"><Copy size={14} className="hover:text-black"/></button>}
+                            <button onClick={() => setReplyingTo(msg)} title="답장"><Reply size={14} className="hover:text-black"/></button>
+                            <button onClick={() => openForwardModal(msg)} title="전달"><Forward size={14} className="hover:text-black"/></button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -754,6 +856,17 @@ export default function App() {
             </div>
 
             {/* Chat Input */}
+            {replyingTo && (
+              <div className="px-4 py-2 bg-gray-50 border-t border-black flex items-center justify-between">
+                <div className="flex flex-col overflow-hidden">
+                  <span className="text-xs font-bold">{replyingTo.senderName}에게 답장</span>
+                  <span className="text-sm text-gray-600 truncate">{replyingTo.text || '(파일)'}</span>
+                </div>
+                <button onClick={() => setReplyingTo(null)} className="text-gray-500 hover:bg-gray-200 p-1 rounded">
+                  <X size={16} />
+                </button>
+              </div>
+            )}
             {selectedFile && (
               <div className="px-4 py-2 bg-gray-50 border-t border-black flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -814,7 +927,7 @@ export default function App() {
           <div className="bg-white border border-black rounded-lg shadow-xl w-[400px] flex flex-col max-h-[80vh]">
             <div className="flex justify-between items-center p-4 border-b border-black bg-[#5cb85c] text-white rounded-t-lg">
               <h2 className="font-bold text-lg">
-                {modalType === '1:1' ? '1:1 채팅 대상 선택' : modalType === 'bulk' ? '단체 메시지 대상 선택' : '그룹 채팅 대상 선택'}
+                {modalType === '1:1' ? '1:1 채팅 대상 선택' : modalType === 'bulk' ? '단체 메시지 대상 선택' : modalType === 'forward' ? '메시지 전달 대상 선택' : '그룹 채팅 대상 선택'}
               </h2>
               <button onClick={closeModal}><X size={24} /></button>
             </div>
@@ -884,10 +997,10 @@ export default function App() {
               <button onClick={closeModal} className="px-4 py-2 border border-black rounded font-bold hover:bg-gray-100">취소</button>
               <button 
                 onClick={handleCreateChat}
-                disabled={selectedUsers.length === 0 || (modalType === 'bulk' && !bulkMessageText.trim())}
+                disabled={selectedUsers.length === 0 || (modalType === 'bulk' && !bulkMessageText.trim()) || (modalType === 'forward' && !forwardMessage)}
                 className="px-4 py-2 bg-[#5cb85c] text-white border border-black rounded font-bold hover:bg-green-700 disabled:opacity-50"
               >
-                {modalType === 'bulk' ? '전송' : '채팅방 생성'}
+                {modalType === 'bulk' ? '전송' : modalType === 'forward' ? '전달' : '채팅방 생성'}
               </button>
             </div>
           </div>
