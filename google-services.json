@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "681340742676",
+    "project_id": "gen-lang-client-0754271193",
+    "storage_bucket": "gen-lang-client-0754271193.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:681340742676:android:6a0ccd7fb7db9e260c8b01",
+        "android_client_info": {
+          "package_name": "Roblox.Maplehospital.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "681340742676-3mj5scgc13mf39i1so6j8f2eg3po0bbl.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDrIoeXY5D3DnAhiErw2A2w_iiIMS7JRMI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "681340742676-3mj5scgc13mf39i1so6j8f2eg3po0bbl.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
