@@ -160,8 +160,8 @@ type FontSize = 'small' | 'medium' | 'large';
 export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('personnel');
   const [activeTab, setActiveTab] = useState<TabType>('의료진');
-  const [expandedDepts, setExpandedDepts] = useState<Record<string, boolean>>({ 'root': true, '의료진': true, '응급의학과 EM': true });
-  const [expandedRoles, setExpandedRoles] = useState<Record<string, boolean>>({ '응급의학과 EM-과장': true, '응급의학과 EM-전문의': true, '응급의학과 EM-레지던트': true });
+  const [expandedDepts, setExpandedDepts] = useState<Record<string, boolean>>({ 'root': true, '의료진': true });
+  const [expandedRoles, setExpandedRoles] = useState<Record<string, boolean>>({});
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isThemePickerOpen, setIsThemePickerOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeColor>('blue');
