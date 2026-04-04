@@ -1,7 +1,12 @@
 {
-  "short_name": "Cool",
-  "name": "Cool Messenger",
+  "short_name": "메이플",
+  "name": "메이플 메신저",
   "icons": [
+    {
+      "src": "/해솔병원-메신저-아이콘.ico",
+      "type": "image/x-icon",
+      "sizes": "16x16 32x32 48x48 64x64"
+    },
     {
       "src": "https://picsum.photos/seed/cool/192/192",
       "type": "image/png",

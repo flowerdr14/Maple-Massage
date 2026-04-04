@@ -163,6 +163,7 @@ export default function App() {
   const [expandedDepts, setExpandedDepts] = useState<Record<string, boolean>>({ 'root': true, '의료진': true, '응급의학과 EM': true });
   const [expandedRoles, setExpandedRoles] = useState<Record<string, boolean>>({ '응급의학과 EM-과장': true, '응급의학과 EM-전문의': true, '응급의학과 EM-레지던트': true });
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isThemePickerOpen, setIsThemePickerOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeColor>('blue');
   const [fontSize, setFontSize] = useState<FontSize>('small');
   
@@ -849,7 +850,7 @@ export default function App() {
             <div className="w-16 h-16 bg-[#3b82f6] rounded-2xl flex items-center justify-center mb-4 shadow-sm">
               <MessageSquare size={32} className="text-white" />
             </div>
-            <h1 className="text-2xl font-bold text-gray-800 tracking-tight">Cool Messenger</h1>
+            <h1 className="text-2xl font-bold text-gray-800 tracking-tight">메이플 메신저</h1>
           </div>
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
@@ -939,18 +940,28 @@ export default function App() {
               </div>
             </div>
             <div className="flex items-center gap-3 mt-1">
-              <div className="relative group">
-                <Grid size={18} className="cursor-pointer hover:text-gray-200" title="테마 변경" />
-                <div className="absolute right-0 top-6 hidden group-hover:flex bg-white border border-gray-300 shadow-xl p-2 rounded-md z-[100] gap-2">
-                  {(['pink', 'navy', 'blue', 'lavender', 'green'] as ThemeColor[]).map(c => (
-                    <div 
-                      key={c} 
-                      className="w-6 h-6 rounded-full cursor-pointer border border-gray-200" 
-                      style={{ backgroundColor: themeColors[c] }}
-                      onClick={() => setTheme(c)}
-                    />
-                  ))}
-                </div>
+              <div className="relative">
+                <Grid 
+                  size={18} 
+                  className="cursor-pointer hover:text-gray-200" 
+                  title="테마 변경" 
+                  onClick={() => setIsThemePickerOpen(!isThemePickerOpen)} 
+                />
+                {isThemePickerOpen && (
+                  <div className="absolute right-0 top-6 flex bg-white border border-gray-300 shadow-xl p-2 rounded-md z-[100] gap-2">
+                    {(['pink', 'navy', 'blue', 'lavender', 'green'] as ThemeColor[]).map(c => (
+                      <div 
+                        key={c} 
+                        className="w-6 h-6 rounded-full cursor-pointer border border-gray-200 hover:scale-110 transition-transform" 
+                        style={{ backgroundColor: themeColors[c] }}
+                        onClick={() => {
+                          setTheme(c);
+                          setIsThemePickerOpen(false);
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
               <Home size={18} className="cursor-pointer hover:text-gray-200" title="공지" onClick={() => openModal('1:1')} />
               <Smile size={18} className="cursor-pointer hover:text-gray-200" title="설문" onClick={() => { changeActiveChannel('global'); setViewMode('messenger'); }} />
