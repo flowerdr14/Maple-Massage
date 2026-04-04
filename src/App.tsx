@@ -166,8 +166,16 @@ export default function App() {
   const [expandedRoles, setExpandedRoles] = useState<Record<string, boolean>>({});
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isThemePickerOpen, setIsThemePickerOpen] = useState(false);
-  const [theme, setTheme] = useState<ThemeColor>('blue');
-  const [fontSize, setFontSize] = useState<FontSize>('small');
+  const [theme, setTheme] = useState<ThemeColor>((localStorage.getItem('haesol_theme') as ThemeColor) || 'blue');
+  const [fontSize, setFontSize] = useState<FontSize>((localStorage.getItem('haesol_fontSize') as FontSize) || 'small');
+
+  useEffect(() => {
+    localStorage.setItem('haesol_theme', theme);
+  }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem('haesol_fontSize', fontSize);
+  }, [fontSize]);
   
   // Auth State
   const [usersList, setUsersList] = useState<CustomUser[]>(INITIAL_USERS);
