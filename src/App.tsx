@@ -3,7 +3,7 @@ import { User, ChevronDown, ChevronRight, Plus, Send, MessageSquare, Users, X, C
 import { db } from './firebase';
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, where, deleteDoc, doc } from 'firebase/firestore';
 
-type CustomUser = { name: string, id: string, pw: string, photo?: string, role?: string };
+type CustomUser = { name: string, id: string, pw: string, photo?: string, role?: string, status?: string };
 
 const INITIAL_USERS: CustomUser[] = [
   { name: '정루이', id: 'jungroo_2', pw: 'haesol123' },
@@ -189,6 +189,7 @@ export default function App() {
   const [noteTitle, setNoteTitle] = useState('');
   const [noteContent, setNoteContent] = useState('');
   const [noteReceivers, setNoteReceivers] = useState<string[]>([]);
+  const [noteFontSize, setNoteFontSize] = useState('14px');
 
   // Modal State
   const [modalType, setModalType] = useState<'1:1' | 'bulk' | 'group' | 'forward' | null>(null);
@@ -585,6 +586,30 @@ export default function App() {
     setViewMode('messenger');
   };
 
+  const handleUpdateDisplayName = (newRole: string) => {
+    if (!customUser) return;
+    const updatedUser = { ...customUser, role: newRole };
+    setCustomUser(updatedUser);
+    setUsersList(prev => prev.map(u => u.id === customUser.id ? updatedUser : u));
+    localStorage.setItem('haesol_user', JSON.stringify(updatedUser));
+  };
+
+  const handleUpdateName = (newName: string) => {
+    if (!customUser || !newName.trim()) return;
+    const updatedUser = { ...customUser, name: newName };
+    setCustomUser(updatedUser);
+    setUsersList(prev => prev.map(u => u.id === customUser.id ? updatedUser : u));
+    localStorage.setItem('haesol_user', JSON.stringify(updatedUser));
+  };
+
+  const handleUpdateStatus = (newStatus: string) => {
+    if (!customUser) return;
+    const updatedUser = { ...customUser, status: newStatus };
+    setCustomUser(updatedUser);
+    setUsersList(prev => prev.map(u => u.id === customUser.id ? updatedUser : u));
+    localStorage.setItem('haesol_user', JSON.stringify(updatedUser));
+  };
+
   const themeColors: Record<ThemeColor, string> = {
     pink: '#ff80ab',
     navy: '#2c3e50',
@@ -715,7 +740,7 @@ export default function App() {
     <div className="flex h-screen bg-gray-100 font-sans text-sm relative">
       
       {/* Left Pane (Buddy List Window) */}
-      <div className="w-[380px] border-r border-gray-400 flex flex-col bg-white shrink-0 shadow-md z-10">
+      <div className="w-[400px] border-r border-gray-400 flex flex-col bg-white shrink-0 shadow-md z-10">
         {/* Header */}
         <div className="h-20 flex flex-col justify-between p-2 text-white" style={{ backgroundColor: themeColors[theme] }}>
           <div className="flex justify-between items-start">
@@ -725,15 +750,37 @@ export default function App() {
                 <Settings size={14} className="absolute bottom-0 right-0 bg-gray-600 rounded-full p-0.5" />
               </div>
               <div className="flex flex-col">
-                <div className="flex items-center gap-1">
-                  <span className="text-sm font-bold">{customUser.name}</span>
-                  <span className="text-[10px] opacity-80">수신가능</span>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="text" 
+                    className="bg-transparent text-white font-bold text-sm outline-none w-20 border-b border-transparent focus:border-white/30"
+                    defaultValue={customUser.name}
+                    onBlur={(e) => handleUpdateName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                  />
+                  <select 
+                    className="bg-white/10 text-white text-[10px] rounded px-1 outline-none border-none cursor-pointer"
+                    value={customUser.status || '수신가능'}
+                    onChange={(e) => handleUpdateStatus(e.target.value)}
+                  >
+                    <option className="text-black">수신가능</option>
+                    <option className="text-black">휴가</option>
+                    <option className="text-black">사직요청</option>
+                    <option className="text-black">자리비움</option>
+                  </select>
                 </div>
                 <input 
                   type="text" 
                   placeholder="대화명을 입력하세요." 
                   className="bg-transparent text-white placeholder-white/70 outline-none text-xs mt-0.5 w-40 border-b border-white/20 focus:border-white/50"
                   defaultValue={customUser.role || ''}
+                  onBlur={(e) => handleUpdateDisplayName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleUpdateDisplayName((e.target as HTMLInputElement).value);
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
                 />
               </div>
             </div>
@@ -763,19 +810,41 @@ export default function App() {
         {/* Body */}
         <div className="flex flex-1 overflow-hidden">
           {/* Sidebar */}
-          <div className="w-24 bg-[#f8f9fa] border-r border-gray-300 flex flex-col overflow-y-auto text-xs text-gray-700">
-            <div className={`p-2 border-b border-gray-300 flex justify-between items-center cursor-pointer ${viewMode === 'personnel' ? 'bg-white font-bold' : 'hover:bg-white'}`} onClick={() => setViewMode('personnel')}>
-              조직도 <ChevronDown size={12} />
+          <div className="w-32 bg-[#f8f9fa] border-r border-gray-300 flex flex-col overflow-hidden text-[11px] text-gray-700">
+            <div className="flex-1 overflow-y-auto">
+              <div className={`p-2 border-b border-gray-300 flex justify-between items-center cursor-pointer ${viewMode === 'personnel' ? 'bg-white font-bold' : 'hover:bg-white'}`} onClick={() => setViewMode('personnel')}>
+                조직도 <ChevronDown size={12} />
+              </div>
+              <div className="p-2 border-b border-gray-300 hover:bg-white cursor-pointer" onClick={() => openModal('1:1')}>1:1 채팅</div>
+              <div className="p-2 border-b border-gray-300 hover:bg-white cursor-pointer" onClick={() => { setActiveChannelId('global'); setViewMode('messenger'); }}>전체채팅</div>
+              <div className="p-2 border-b border-gray-300 hover:bg-white cursor-pointer" onClick={() => openModal('group')}>단체채팅</div>
+              <div className="p-2 border-b border-gray-300 flex justify-between items-center hover:bg-white cursor-pointer" onClick={() => openModal('group')}>
+                그룹채팅 <ChevronDown size={12} />
+              </div>
+              
+              {/* Integrated Chat List */}
+              <div className="bg-gray-100 px-2 py-1 text-[10px] font-bold text-gray-500 flex justify-between items-center">
+                채팅방 목록
+                <Plus size={10} className="cursor-pointer" onClick={() => setIsDropdownOpen(!isDropdownOpen)} />
+              </div>
+              <div className="flex flex-col">
+                {chatRooms.length === 0 && <div className="p-2 text-gray-400 italic text-[9px]">참여 중인 채팅방이 없습니다.</div>}
+                {chatRooms.map(room => (
+                  <div 
+                    key={room.id}
+                    onClick={() => { setActiveChannelId(room.id); setViewMode('messenger'); setSelectedFile(null); setReplyingTo(null); }}
+                    className={`p-2 border-b border-gray-200 cursor-pointer hover:bg-white flex flex-col gap-0.5 ${activeChannelId === room.id && viewMode === 'messenger' ? 'bg-white border-l-2 border-blue-500' : ''}`}
+                  >
+                    <span className="font-bold text-[10px] truncate">{room.name}</span>
+                    <span className="text-[9px] text-gray-400 truncate">{room.lastMessage || '...'}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="p-2 border-b border-gray-300 hover:bg-white cursor-pointer" onClick={handleSendNote}>쪽지</div>
+              <div className="p-2 border-b border-gray-300 hover:bg-white cursor-pointer" onClick={() => setViewMode('notes')}>쪽지 관리함</div>
             </div>
-            <div className="p-2 border-b border-gray-300 hover:bg-white cursor-pointer" onClick={() => openModal('1:1')}>1:1 채팅</div>
-            <div className="p-2 border-b border-gray-300 hover:bg-white cursor-pointer" onClick={() => { setActiveChannelId('global'); setViewMode('messenger'); }}>전체채팅</div>
-            <div className="p-2 border-b border-gray-300 hover:bg-white cursor-pointer" onClick={() => openModal('group')}>단체채팅</div>
-            <div className="p-2 border-b border-gray-300 flex justify-between items-center hover:bg-white cursor-pointer" onClick={() => openModal('group')}>
-              그룹채팅 <ChevronDown size={12} />
-            </div>
-            <div className="p-2 border-b border-gray-300 hover:bg-white cursor-pointer" onClick={handleSendNote}>쪽지</div>
-            <div className="p-2 border-b border-gray-300 hover:bg-white cursor-pointer" onClick={() => setViewMode('notes')}>쪽지 관리함</div>
-            <div className="mt-auto p-2 border-t border-gray-300 hover:bg-white cursor-pointer text-red-500 text-center" onClick={handleLogout}>로그아웃</div>
+            <div className="p-2 border-t border-gray-300 hover:bg-white cursor-pointer text-red-500 text-center text-[10px]" onClick={handleLogout}>로그아웃</div>
           </div>
 
           {/* Main Content */}
@@ -901,16 +970,15 @@ export default function App() {
                                                       onChange={() => u && handleToggleTreeMember(u.id)}
                                                       onClick={e => e.stopPropagation()} 
                                                     />
-                                                    {member.status === 'online' ? (
+                                                    {u?.status === '수신가능' || (!u?.status && member.status === 'online') ? (
                                                       <User size={14} className="text-blue-500 fill-blue-500" />
                                                     ) : (
                                                       <div className="relative">
-                                                        <Search size={14} className="text-gray-400" />
+                                                        <User size={14} className="text-gray-400" />
                                                         <div className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 bg-red-500 rounded-full"></div>
                                                       </div>
                                                     )}
-                                                    <span className="text-gray-800">{member.name} / {roleGroup.role || '직원'}</span>
-                                                    {member.desc && <span className="text-gray-400 text-[10px] ml-1">({member.desc})</span>}
+                                                    <span className="text-gray-800">{member.name}</span>
                                                   </div>
                                                 );
                                               })}
@@ -1010,17 +1078,33 @@ export default function App() {
                   <div className="flex-1 bg-white p-4 overflow-y-auto flex flex-col gap-4">
                     {selectedNote ? (
                       <>
-                        <div className="border-b border-gray-200 pb-2">
-                          <div className="flex gap-4 mb-2">
-                            <span className="text-gray-500 w-16">제 목</span>
-                            <span className="font-bold">{selectedNote.title}</span>
+                        <div className="border-b border-gray-200 pb-2 flex justify-between items-start">
+                          <div className="flex-1">
+                            <div className="flex gap-4 mb-2">
+                              <span className="text-gray-500 w-16">제 목</span>
+                              <span className="font-bold">{selectedNote.title}</span>
+                            </div>
+                            <div className="flex gap-4 mb-2">
+                              <span className="text-gray-500 w-16">{noteTab === 'inbox' ? '보낸사람' : '받는사람'}</span>
+                              <span>{noteTab === 'inbox' ? selectedNote.senderName : selectedNote.receiverIds.join(', ')}</span>
+                            </div>
                           </div>
-                          <div className="flex gap-4 mb-2">
-                            <span className="text-gray-500 w-16">{noteTab === 'inbox' ? '보낸사람' : '받는사람'}</span>
-                            <span>{noteTab === 'inbox' ? selectedNote.senderName : selectedNote.receiverIds.join(', ')}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-gray-400">글자크기</span>
+                            <select 
+                              className="text-[10px] border border-gray-300 px-1 py-0.5 outline-none bg-white"
+                              value={noteFontSize}
+                              onChange={(e) => setNoteFontSize(e.target.value)}
+                            >
+                              <option value="12px">9pt</option>
+                              <option value="14px">10pt</option>
+                              <option value="16px">12pt</option>
+                              <option value="18px">14pt</option>
+                              <option value="24px">18pt</option>
+                            </select>
                           </div>
                         </div>
-                        <div className="flex-1 whitespace-pre-wrap text-sm leading-relaxed">
+                        <div className="flex-1 whitespace-pre-wrap leading-relaxed" style={{ fontSize: noteFontSize }}>
                           {selectedNote.content}
                         </div>
                         <div className="flex justify-end gap-2 mt-auto pt-4 border-t border-gray-100">
@@ -1322,7 +1406,17 @@ export default function App() {
 
             <div className="bg-gray-100 border-b border-gray-300 p-1 flex items-center gap-2">
               <select className="text-[10px] border border-gray-300 px-1 py-0.5 outline-none bg-white"><option>나눔고딕</option></select>
-              <select className="text-[10px] border border-gray-300 px-1 py-0.5 outline-none bg-white"><option>2 (10pt)</option></select>
+              <select 
+                className="text-[10px] border border-gray-300 px-1 py-0.5 outline-none bg-white"
+                value={noteFontSize}
+                onChange={(e) => setNoteFontSize(e.target.value)}
+              >
+                <option value="12px">9pt</option>
+                <option value="14px">10pt</option>
+                <option value="16px">12pt</option>
+                <option value="18px">14pt</option>
+                <option value="24px">18pt</option>
+              </select>
               <div className="flex gap-1 border-l border-gray-300 pl-2">
                 <button className="p-1 hover:bg-gray-200 rounded-sm font-bold text-xs">A+</button>
                 <button className="p-1 hover:bg-gray-200 rounded-sm font-bold text-xs italic">I</button>
@@ -1332,6 +1426,7 @@ export default function App() {
 
             <textarea 
               className="flex-1 p-4 text-sm outline-none resize-none min-h-[200px]"
+              style={{ fontSize: noteFontSize }}
               placeholder="내용을 입력하세요."
               value={noteContent}
               onChange={e => setNoteContent(e.target.value)}
