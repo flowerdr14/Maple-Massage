@@ -33,6 +33,7 @@ const INITIAL_USERS: CustomUser[] = [
   { name: '델런', id: 'delrun', pw: 'haesol123' },
   { name: '준석준', id: 'ilbae', pw: 'haesol123' },
   { name: '박시윤', id: 'bbaksi', pw: 'haesol123' },
+  { name: '이가연', id: 'leegakite', pw: 'haesol123' },
 ];
 
 const DEFAULT_PROFILE_PIC = 'https://e7.pngegg.com/pngimages/906/222/png-clipart-computer-icons-user-profile-avatar-french-people-computer-network-heroes-thumbnail.png';
@@ -59,7 +60,8 @@ const PERSONNEL_DATA = {
       dept: '정형외과 OS', count: 3,
       roles: [
         { role: '과장', count: 1, members: [{ name: '정루이', desc: 'OS 과장', status: 'online' }] },
-        { role: '전문의', count: 1, members: [{ name: 'Cream', desc: 'OS 전문의', status: 'online' }] }
+        { role: '전문의', count: 1, members: [{ name: 'Cream', desc: 'OS 전문의', status: 'online' }] },
+        { role: '레지던트', count: 1, members: [{ name: '이가연', desc: 'OS R1', status: 'online' }] }
       ]
     },
     {
@@ -97,8 +99,7 @@ const PERSONNEL_DATA = {
     {
       dept: '성형외과 PS', count: 1,
       roles: [
-        { role: '과장', count: 1, members: [{ name: '박민국', desc: 'AN, NS, TS 전문의 / RD 과장', status: 'online' }] },
-        { role: '대리', count: 1, members: [{ name: '유중혁', desc: 'AN 과장 / RD 대리', status: 'away' }] }
+        { role: '과장', count: 1, members: [{ name: '릴리', desc: 'AN 전문의 / PS 과장', status: 'online' }] }
       ]
     },
     {
@@ -111,7 +112,8 @@ const PERSONNEL_DATA = {
     {
       dept: '영상의학과 RD', count: 2,
       roles: [
-        { role: '과장', count: 1, members: [{ name: '릴리', desc: 'AN 전문의 / PS 과장', status: 'online' }] }
+        { role: '과장', count: 1, members: [{ name: '박민국', desc: 'AN, NS, TS 전문의 / RD 과장', status: 'online' }] },
+        { role: '대리', count: 1, members: [{ name: '유중혁', desc: 'AN 과장 / RD 대리', status: 'away' }] }
       ]
     },
     {
