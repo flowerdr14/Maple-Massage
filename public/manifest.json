@@ -1,20 +1,20 @@
 {
-  "short_name": "Maple",
-  "name": "Maple Messenger",
+  "short_name": "Cool",
+  "name": "Cool Messenger",
   "icons": [
     {
-      "src": "https://picsum.photos/seed/maple/192/192",
+      "src": "https://picsum.photos/seed/cool/192/192",
       "type": "image/png",
       "sizes": "192x192"
     },
     {
-      "src": "https://picsum.photos/seed/maple/512/512",
+      "src": "https://picsum.photos/seed/cool/512/512",
       "type": "image/png",
       "sizes": "512x512"
     }
   ],
   "start_url": ".",
   "display": "standalone",
-  "theme_color": "#5cb85c",
+  "theme_color": "#3b82f6",
   "background_color": "#ffffff"
 }

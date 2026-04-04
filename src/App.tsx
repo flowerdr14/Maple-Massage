@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { User, ChevronDown, ChevronRight, Plus, Send, MessageSquare, Users, X, Check, Paperclip, FileText, Copy, Forward, Trash2, Reply } from 'lucide-react';
+import { User, ChevronDown, ChevronRight, Plus, Send, MessageSquare, Users, X, Check, Paperclip, FileText, Copy, Forward, Trash2, Reply, MinusSquare, PlusSquare, Search, Settings, Box, Calendar, Save, Grid, Home, Smile, CheckSquare, MessageCircle } from 'lucide-react';
 import { db } from './firebase';
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, where, deleteDoc, doc } from 'firebase/firestore';
 
@@ -147,16 +147,21 @@ const PERSONNEL_DATA = {
   ]
 };
 
-type ViewMode = 'personnel' | 'messenger';
+type ViewMode = 'personnel' | 'messenger' | 'notes';
 type TabType = '의료진' | '간호사' | '원무과';
 type ChatRoom = { id: string, name: string, participants: string[], isGroup: boolean, lastMessage?: string, timestamp?: any };
+type Note = { id: string, senderId: string, senderName: string, receiverIds: string[], title: string, content: string, timestamp: any, isRead?: boolean };
+type ThemeColor = 'pink' | 'navy' | 'blue' | 'lavender' | 'green';
+type FontSize = 'small' | 'medium' | 'large';
 
 export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('personnel');
   const [activeTab, setActiveTab] = useState<TabType>('의료진');
-  const [expandedDepts, setExpandedDepts] = useState<Record<string, boolean>>({ '응급의학과 EM': true });
+  const [expandedDepts, setExpandedDepts] = useState<Record<string, boolean>>({ 'root': true, '의료진': true, '응급의학과 EM': true });
   const [expandedRoles, setExpandedRoles] = useState<Record<string, boolean>>({ '응급의학과 EM-과장': true, '응급의학과 EM-전문의': true, '응급의학과 EM-레지던트': true });
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [theme, setTheme] = useState<ThemeColor>('blue');
+  const [fontSize, setFontSize] = useState<FontSize>('small');
   
   // Auth State
   const [usersList, setUsersList] = useState<CustomUser[]>(INITIAL_USERS);
@@ -176,6 +181,15 @@ export default function App() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Note State
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [selectedNote, setSelectedNote] = useState<Note | null>(null);
+  const [noteTab, setNoteTab] = useState<'inbox' | 'sent'>('inbox');
+  const [noteModalOpen, setNoteModalOpen] = useState(false);
+  const [noteTitle, setNoteTitle] = useState('');
+  const [noteContent, setNoteContent] = useState('');
+  const [noteReceivers, setNoteReceivers] = useState<string[]>([]);
+
   // Modal State
   const [modalType, setModalType] = useState<'1:1' | 'bulk' | 'group' | 'forward' | null>(null);
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
@@ -183,6 +197,9 @@ export default function App() {
   const [groupNameInput, setGroupNameInput] = useState('');
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [forwardMessage, setForwardMessage] = useState<any>(null);
+
+  // Tree Selection State
+  const [selectedTreeMembers, setSelectedTreeMembers] = useState<string[]>([]);
 
   // Profile State
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -548,44 +565,144 @@ export default function App() {
     return messages.filter(m => m.channelId === activeChannelId);
   }, [messages, activeChannelId]);
 
+  const handleCreateChatFromTree = (member: any) => {
+    if (!customUser || member.name === customUser.name) return;
+    const otherUser = usersList.find(u => u.name === member.name);
+    if (!otherUser) return;
+    
+    const otherId = otherUser.id;
+    const channelId = [customUser.id, otherId].sort().join('_');
+    
+    if (!chatRooms.find(r => r.id === channelId)) {
+      setChatRooms(prev => [{
+        id: channelId,
+        name: otherUser.name,
+        participants: [customUser.id, otherId],
+        isGroup: false
+      }, ...prev]);
+    }
+    setActiveChannelId(channelId);
+    setViewMode('messenger');
+  };
+
+  const themeColors: Record<ThemeColor, string> = {
+    pink: '#ff80ab',
+    navy: '#2c3e50',
+    blue: '#3b82f6',
+    lavender: '#9b59b6',
+    green: '#2ecc71'
+  };
+
+  const getFontSizeClass = () => {
+    if (fontSize === 'small') return 'text-[11px]';
+    if (fontSize === 'medium') return 'text-[13px]';
+    return 'text-[15px]';
+  };
+
+  const handleToggleTreeMember = (memberId: string) => {
+    setSelectedTreeMembers(prev => 
+      prev.includes(memberId) ? prev.filter(id => id !== memberId) : [...prev, memberId]
+    );
+  };
+
+  const handleToggleDeptSelection = (deptName: string, members: any[]) => {
+    const memberIds = members.map(m => {
+      const u = usersList.find(ul => ul.name === m.name);
+      return u?.id;
+    }).filter(Boolean) as string[];
+
+    const allSelected = memberIds.every(id => selectedTreeMembers.includes(id));
+    if (allSelected) {
+      setSelectedTreeMembers(prev => prev.filter(id => !memberIds.includes(id)));
+    } else {
+      setSelectedTreeMembers(prev => Array.from(new Set([...prev, ...memberIds])));
+    }
+  };
+
+  const handleSendNote = () => {
+    if (!customUser || selectedTreeMembers.length === 0) return;
+    setNoteReceivers(selectedTreeMembers);
+    setNoteModalOpen(true);
+  };
+
+  const submitNote = async () => {
+    if (!customUser || !noteTitle || noteReceivers.length === 0) return;
+    try {
+      await addDoc(collection(db, 'notes'), {
+        senderId: customUser.id,
+        senderName: customUser.name,
+        receiverIds: noteReceivers,
+        title: noteTitle,
+        content: noteContent,
+        timestamp: serverTimestamp(),
+        isRead: false
+      });
+      setNoteModalOpen(false);
+      setNoteTitle('');
+      setNoteContent('');
+      setNoteReceivers([]);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    if (!customUser) return;
+    const q = query(collection(db, 'notes'), orderBy('timestamp', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const nts: Note[] = [];
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        if (data.senderId === customUser.id || data.receiverIds.includes(customUser.id)) {
+          nts.push({ id: doc.id, ...data } as Note);
+        }
+      });
+      setNotes(nts);
+    });
+    return () => unsubscribe();
+  }, [customUser]);
+
   if (!customUser) {
     return (
-      <div className="flex h-screen bg-gray-100 items-center justify-center font-sans">
-        <div className="bg-white p-8 rounded-lg shadow-md w-96 border border-black">
-          <h1 className="text-2xl font-bold text-center mb-6 text-[#5cb85c]">Maple Messenger</h1>
+      <div className="flex h-screen bg-[#e8f0fe] items-center justify-center font-sans">
+        <div className="bg-white p-8 rounded-xl shadow-lg w-96 border border-gray-200">
+          <div className="flex flex-col items-center mb-8">
+            <div className="w-16 h-16 bg-[#3b82f6] rounded-2xl flex items-center justify-center mb-4 shadow-sm">
+              <MessageSquare size={32} className="text-white" />
+            </div>
+            <h1 className="text-2xl font-bold text-gray-800 tracking-tight">Cool Messenger</h1>
+          </div>
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-sm font-bold mb-1">아이디</label>
               <input 
                 type="text" 
                 value={loginId}
                 onChange={e => setLoginId(e.target.value)}
-                className="w-full border border-black p-2 rounded outline-none focus:ring-2 focus:ring-[#5cb85c]"
-                placeholder="아이디를 입력하세요"
+                className="w-full border border-gray-300 p-3 rounded-lg outline-none focus:ring-2 focus:ring-[#3b82f6] focus:border-transparent transition-all text-sm"
+                placeholder="아이디"
               />
             </div>
             <div>
-              <label className="block text-sm font-bold mb-1">비밀번호</label>
               <input 
                 type="password" 
                 value={loginPw}
                 onChange={e => setLoginPw(e.target.value)}
-                className="w-full border border-black p-2 rounded outline-none focus:ring-2 focus:ring-[#5cb85c]"
-                placeholder="비밀번호를 입력하세요"
+                className="w-full border border-gray-300 p-3 rounded-lg outline-none focus:ring-2 focus:ring-[#3b82f6] focus:border-transparent transition-all text-sm"
+                placeholder="비밀번호"
               />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 px-1">
               <input 
                 type="checkbox" 
                 id="autoLogin" 
                 checked={isAutoLogin} 
                 onChange={e => setIsAutoLogin(e.target.checked)} 
-                className="w-4 h-4 text-[#5cb85c] border-black rounded focus:ring-[#5cb85c]"
+                className="w-4 h-4 text-[#3b82f6] border-gray-300 rounded focus:ring-[#3b82f6] cursor-pointer"
               />
-              <label htmlFor="autoLogin" className="text-sm font-bold cursor-pointer">자동 로그인</label>
+              <label htmlFor="autoLogin" className="text-sm text-gray-600 cursor-pointer select-none">자동 로그인</label>
             </div>
-            {loginError && <p className="text-red-500 text-sm font-bold">{loginError}</p>}
-            <button type="submit" className="w-full bg-[#5cb85c] text-white font-bold py-2 rounded border border-black hover:bg-green-700">
+            {loginError && <p className="text-red-500 text-xs font-medium px-1">{loginError}</p>}
+            <button type="submit" className="w-full bg-[#3b82f6] text-white font-bold py-3 rounded-lg shadow-sm hover:bg-blue-600 hover:shadow transition-all mt-2">
               로그인
             </button>
           </form>
@@ -595,206 +712,347 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-white font-sans text-sm relative">
+    <div className="flex h-screen bg-gray-100 font-sans text-sm relative">
       
-      {/* Global Navigation */}
-      <div className="w-16 bg-gray-100 border-r border-black flex flex-col items-center py-4 gap-4">
-        <button 
-          onClick={() => { setViewMode('personnel'); setActiveChannelId(null); setSelectedFile(null); }}
-          className={`p-3 rounded-lg border border-black ${viewMode === 'personnel' ? 'bg-[#5cb85c] text-white' : 'bg-white hover:bg-gray-50'}`}
-          title="인원리스트"
-        >
-          <Users size={24} />
-        </button>
-        <button 
-          onClick={() => setViewMode('messenger')}
-          className={`p-3 rounded-lg border border-black ${viewMode === 'messenger' ? 'bg-[#C8E6C9]' : 'bg-white hover:bg-gray-50'}`}
-          title="메신저"
-        >
-          <MessageSquare size={24} />
-        </button>
-        <div className="mt-auto flex flex-col items-center gap-4 w-full px-2 pb-2">
-          <button
-            onClick={() => {
-              setProfileEdit({ pw: customUser.pw, photo: customUser.photo || '', role: customUser.role || '' });
-              setIsProfileModalOpen(true);
-            }}
-            className="w-10 h-10 rounded-full bg-white border border-black overflow-hidden flex items-center justify-center hover:ring-2 hover:ring-[#5cb85c] transition-all"
-            title="프로필 설정"
-          >
-            {customUser.photo ? (
-              <img src={customUser.photo} alt="profile" className="w-full h-full object-cover" />
-            ) : (
-              <User size={20} className="text-gray-600" />
-            )}
-          </button>
-          <button 
-            onClick={handleLogout}
-            className="w-full py-2 text-xs font-bold text-red-600 hover:bg-red-50 rounded border border-transparent hover:border-red-200"
-          >
-            로그아웃
-          </button>
-        </div>
-      </div>
-
-      {/* Left Pane (List Area) */}
-      <div className="w-[350px] border-r border-black flex flex-col bg-white">
-        
-        {viewMode === 'personnel' ? (
-          <>
-            {/* Personnel Header */}
-            <div className="bg-[#5cb85c] text-white text-center py-2 border-b border-black font-bold text-base">
-              인원리스트
-            </div>
-            
-            {/* Tabs */}
-            <div className="flex border-b border-black">
-              {(['의료진', '간호사', '원무과'] as TabType[]).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`flex-1 py-2 text-center border-r border-black last:border-r-0 font-medium ${
-                    activeTab === tab ? 'bg-[#dcedc8]' : 'bg-white'
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-
-            {/* Search Box */}
-            <div className="p-2 border-b border-black">
-              <input 
-                type="text" 
-                className="w-full border border-black p-1.5 outline-none"
-              />
-            </div>
-
-            {/* List Content */}
-            <div className="flex-1 overflow-y-auto p-2">
-              {PERSONNEL_DATA[activeTab].length === 0 ? (
-                <div className="flex items-center justify-center h-full text-black font-medium">
-                  인원이 없습니다.
+      {/* Left Pane (Buddy List Window) */}
+      <div className="w-[380px] border-r border-gray-400 flex flex-col bg-white shrink-0 shadow-md z-10">
+        {/* Header */}
+        <div className="h-20 flex flex-col justify-between p-2 text-white" style={{ backgroundColor: themeColors[theme] }}>
+          <div className="flex justify-between items-start">
+            <div className="flex items-center gap-2">
+              <div className="relative cursor-pointer" onClick={() => setIsProfileModalOpen(true)}>
+                <img src={customUser.photo || 'https://via.placeholder.com/40'} className="w-12 h-12 rounded-full border-2 border-white/50 object-cover bg-white" alt="profile" />
+                <Settings size={14} className="absolute bottom-0 right-0 bg-gray-600 rounded-full p-0.5" />
+              </div>
+              <div className="flex flex-col">
+                <div className="flex items-center gap-1">
+                  <span className="text-sm font-bold">{customUser.name}</span>
+                  <span className="text-[10px] opacity-80">수신가능</span>
                 </div>
-              ) : (
-                <div className="space-y-1">
-                  {PERSONNEL_DATA[activeTab].map((dept) => (
-                    <div key={dept.dept} className="select-none">
-                      {/* Department Row */}
-                      <div 
-                        className="flex items-center gap-1 cursor-pointer py-1 font-bold"
-                        onClick={() => toggleDept(dept.dept)}
-                      >
-                        {expandedDepts[dept.dept] ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                        <span>{dept.dept} {dept.count > 0 && `(${dept.count})`}</span>
-                      </div>
+                <input 
+                  type="text" 
+                  placeholder="대화명을 입력하세요." 
+                  className="bg-transparent text-white placeholder-white/70 outline-none text-xs mt-0.5 w-40 border-b border-white/20 focus:border-white/50"
+                  defaultValue={customUser.role || ''}
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-3 mt-1">
+              <div className="relative group">
+                <Grid size={18} className="cursor-pointer hover:text-gray-200" title="테마 변경" />
+                <div className="absolute right-0 top-6 hidden group-hover:flex bg-white border border-gray-300 shadow-xl p-2 rounded-md z-[100] gap-2">
+                  {(['pink', 'navy', 'blue', 'lavender', 'green'] as ThemeColor[]).map(c => (
+                    <div 
+                      key={c} 
+                      className="w-6 h-6 rounded-full cursor-pointer border border-gray-200" 
+                      style={{ backgroundColor: themeColors[c] }}
+                      onClick={() => setTheme(c)}
+                    />
+                  ))}
+                </div>
+              </div>
+              <Home size={18} className="cursor-pointer hover:text-gray-200" title="공지" onClick={() => openModal('1:1')} />
+              <Smile size={18} className="cursor-pointer hover:text-gray-200" title="설문" onClick={() => { setActiveChannelId('global'); setViewMode('messenger'); }} />
+              <CheckSquare size={18} className="cursor-pointer hover:text-gray-200" title="메모" onClick={() => openModal('group')} />
+              <MessageCircle size={18} className="cursor-pointer hover:text-gray-200" title="메신저" onClick={() => setViewMode(viewMode === 'messenger' ? 'personnel' : 'messenger')} />
+              <Save size={18} className="cursor-pointer hover:text-gray-200" title="저장" />
+            </div>
+          </div>
+        </div>
 
-                      {/* Roles & Members */}
-                      {expandedDepts[dept.dept] && (
-                        <div className="ml-4">
-                          {dept.roles.map((roleGroup, idx) => (
-                            <div key={idx}>
-                              {/* Role Row (if role exists) */}
-                              {roleGroup.role && (
-                                <div 
-                                  className="flex items-center gap-1 cursor-pointer py-1 font-bold"
-                                  onClick={() => toggleRole(dept.dept, roleGroup.role)}
-                                >
-                                  {expandedRoles[`${dept.dept}-${roleGroup.role}`] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                                  <span>{roleGroup.role} ({roleGroup.members.length})</span>
-                                </div>
-                              )}
+        {/* Body */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Sidebar */}
+          <div className="w-24 bg-[#f8f9fa] border-r border-gray-300 flex flex-col overflow-y-auto text-xs text-gray-700">
+            <div className={`p-2 border-b border-gray-300 flex justify-between items-center cursor-pointer ${viewMode === 'personnel' ? 'bg-white font-bold' : 'hover:bg-white'}`} onClick={() => setViewMode('personnel')}>
+              조직도 <ChevronDown size={12} />
+            </div>
+            <div className="p-2 border-b border-gray-300 hover:bg-white cursor-pointer" onClick={() => openModal('1:1')}>1:1 채팅</div>
+            <div className="p-2 border-b border-gray-300 hover:bg-white cursor-pointer" onClick={() => { setActiveChannelId('global'); setViewMode('messenger'); }}>전체채팅</div>
+            <div className="p-2 border-b border-gray-300 hover:bg-white cursor-pointer" onClick={() => openModal('group')}>단체채팅</div>
+            <div className="p-2 border-b border-gray-300 flex justify-between items-center hover:bg-white cursor-pointer" onClick={() => openModal('group')}>
+              그룹채팅 <ChevronDown size={12} />
+            </div>
+            <div className="p-2 border-b border-gray-300 hover:bg-white cursor-pointer" onClick={handleSendNote}>쪽지</div>
+            <div className="p-2 border-b border-gray-300 hover:bg-white cursor-pointer" onClick={() => setViewMode('notes')}>쪽지 관리함</div>
+            <div className="mt-auto p-2 border-t border-gray-300 hover:bg-white cursor-pointer text-red-500 text-center" onClick={handleLogout}>로그아웃</div>
+          </div>
 
-                              {/* Members Row */}
-                              {(!roleGroup.role || expandedRoles[`${dept.dept}-${roleGroup.role}`]) && (
-                                <div className={roleGroup.role ? "ml-5" : "ml-1"}>
-                                  {roleGroup.members.map((member, mIdx) => (
-                                    <div key={mIdx} className="flex items-center gap-2 py-1">
-                                      <div className="relative flex items-center justify-center text-[#4a148c]">
-                                        <User size={16} className="fill-current" />
-                                        {member.status === 'away' && (
-                                          <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-[#ff5252] rounded-full border border-white flex items-center justify-center">
-                                            <div className="w-1.5 h-[2px] bg-white rounded-full" />
-                                          </div>
-                                        )}
-                                      </div>
-                                      <span className="font-bold">{member.name}</span>
-                                      {member.desc && (
-                                        <>
-                                          <span className="text-gray-500">/</span>
-                                          <span className="font-bold">{member.desc}</span>
-                                        </>
-                                      )}
+          {/* Main Content */}
+          <div className="flex-1 flex flex-col bg-white">
+            {viewMode === 'personnel' ? (
+              <>
+                {/* Search Bar Area */}
+                <div className="p-1.5 border-b border-gray-300 flex gap-1 bg-gray-50">
+                  <input type="text" placeholder="이름(아이디) 또는 그룹명 검색" className="flex-1 border border-gray-300 px-2 py-1 text-xs outline-none" />
+                  <select 
+                    className="border border-gray-300 px-1 py-1 text-xs outline-none bg-white"
+                    value={fontSize}
+                    onChange={(e) => setFontSize(e.target.value as FontSize)}
+                  >
+                    <option value="small">작게</option>
+                    <option value="medium">중간</option>
+                    <option value="large">크게</option>
+                  </select>
+                </div>
+
+                {/* Tree View */}
+                <div className={`flex-1 overflow-y-auto p-2 font-sans ${getFontSizeClass()}`}>
+                  <div className="flex items-center gap-1 mb-1 cursor-pointer select-none" onClick={() => toggleDept('root')}>
+                    {expandedDepts['root'] !== false ? <MinusSquare size={14} className="text-gray-500" /> : <PlusSquare size={14} className="text-gray-500" />}
+                    <input 
+                      type="checkbox" 
+                      className="w-3.5 h-3.5" 
+                      checked={Object.values(PERSONNEL_DATA).every(tab => tab.every(d => d.roles.every(r => r.members.every(m => {
+                        const u = usersList.find(ul => ul.name === m.name);
+                        return u ? selectedTreeMembers.includes(u.id) : true;
+                      }))))}
+                      onChange={e => {
+                        e.stopPropagation();
+                        const allMembers = Object.values(PERSONNEL_DATA).flatMap(tab => tab.flatMap(d => d.roles.flatMap(r => r.members)));
+                        handleToggleDeptSelection('root', allMembers);
+                      }} 
+                      onClick={e => e.stopPropagation()}
+                    />
+                    <span className="font-bold">해솔병원</span>
+                  </div>
+                  
+                  {expandedDepts['root'] !== false && (
+                    <div className="ml-1.5 border-l border-dotted border-gray-300 pl-3">
+                      {(['의료진', '간호사', '원무과'] as TabType[]).map((tab) => (
+                        <div key={tab} className="mb-1">
+                          <div className="flex items-center gap-1 cursor-pointer py-0.5 select-none" onClick={() => toggleDept(tab)}>
+                            {expandedDepts[tab] ? <MinusSquare size={14} className="text-gray-500" /> : <PlusSquare size={14} className="text-gray-500" />}
+                            <input 
+                              type="checkbox" 
+                              className="w-3.5 h-3.5" 
+                              checked={PERSONNEL_DATA[tab].every(d => d.roles.every(r => r.members.every(m => {
+                                const u = usersList.find(ul => ul.name === m.name);
+                                return u ? selectedTreeMembers.includes(u.id) : true;
+                              })))}
+                              onChange={e => {
+                                e.stopPropagation();
+                                const allMembers = PERSONNEL_DATA[tab].flatMap(d => d.roles.flatMap(r => r.members));
+                                handleToggleDeptSelection(tab, allMembers);
+                              }} 
+                              onClick={e => e.stopPropagation()}
+                            />
+                            <span className="font-bold">{tab}</span>
+                          </div>
+                          
+                          {expandedDepts[tab] && (
+                            <div className="ml-1.5 border-l border-dotted border-gray-300 pl-3">
+                              {PERSONNEL_DATA[tab].map((dept) => (
+                                <div key={dept.dept} className="mb-0.5">
+                                  <div className="flex items-center gap-1 cursor-pointer py-0.5 select-none" onClick={() => toggleDept(dept.dept)}>
+                                    {expandedDepts[dept.dept] ? <MinusSquare size={14} className="text-gray-500" /> : <PlusSquare size={14} className="text-gray-500" />}
+                                    <input 
+                                      type="checkbox" 
+                                      className="w-3.5 h-3.5" 
+                                      checked={dept.roles.every(r => r.members.every(m => {
+                                        const u = usersList.find(ul => ul.name === m.name);
+                                        return u ? selectedTreeMembers.includes(u.id) : true;
+                                      }))}
+                                      onChange={e => {
+                                        e.stopPropagation();
+                                        const allMembers = dept.roles.flatMap(r => r.members);
+                                        handleToggleDeptSelection(dept.dept, allMembers);
+                                      }} 
+                                      onClick={e => e.stopPropagation()}
+                                    />
+                                    <span className="font-bold">{dept.dept} ({dept.count})</span>
+                                  </div>
+                                  
+                                  {expandedDepts[dept.dept] && (
+                                    <div className="ml-1.5 border-l border-dotted border-gray-300 pl-3">
+                                      {dept.roles.map((roleGroup, idx) => (
+                                        <React.Fragment key={idx}>
+                                          {roleGroup.role && (
+                                            <div className="flex items-center gap-1 cursor-pointer py-0.5 select-none" onClick={() => toggleRole(dept.dept, roleGroup.role)}>
+                                              {expandedRoles[`${dept.dept}-${roleGroup.role}`] ? <MinusSquare size={14} className="text-gray-500" /> : <PlusSquare size={14} className="text-gray-500" />}
+                                              <input 
+                                                type="checkbox" 
+                                                className="w-3.5 h-3.5" 
+                                                checked={roleGroup.members.every(m => {
+                                                  const u = usersList.find(ul => ul.name === m.name);
+                                                  return u ? selectedTreeMembers.includes(u.id) : true;
+                                                })}
+                                                onChange={e => {
+                                                  e.stopPropagation();
+                                                  handleToggleDeptSelection(`${dept.dept}-${roleGroup.role}`, roleGroup.members);
+                                                }} 
+                                                onClick={e => e.stopPropagation()}
+                                              />
+                                              <span>{roleGroup.role}</span>
+                                            </div>
+                                          )}
+                                          
+                                          {(!roleGroup.role || expandedRoles[`${dept.dept}-${roleGroup.role}`]) && (
+                                            <div className={roleGroup.role ? "ml-1.5 border-l border-dotted border-gray-300 pl-3" : ""}>
+                                              {roleGroup.members.map((member, mIdx) => {
+                                                const u = usersList.find(ul => ul.name === member.name);
+                                                const isSelected = u ? selectedTreeMembers.includes(u.id) : false;
+                                                return (
+                                                  <div key={mIdx} className={`flex items-center gap-1 py-0.5 hover:bg-blue-50 cursor-pointer select-none ${isSelected ? 'bg-blue-50' : ''}`} onDoubleClick={() => handleCreateChatFromTree(member)}>
+                                                    <input 
+                                                      type="checkbox" 
+                                                      className="w-3.5 h-3.5" 
+                                                      checked={isSelected}
+                                                      onChange={() => u && handleToggleTreeMember(u.id)}
+                                                      onClick={e => e.stopPropagation()} 
+                                                    />
+                                                    {member.status === 'online' ? (
+                                                      <User size={14} className="text-blue-500 fill-blue-500" />
+                                                    ) : (
+                                                      <div className="relative">
+                                                        <Search size={14} className="text-gray-400" />
+                                                        <div className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 bg-red-500 rounded-full"></div>
+                                                      </div>
+                                                    )}
+                                                    <span className="text-gray-800">{member.name} / {roleGroup.role || '직원'}</span>
+                                                    {member.desc && <span className="text-gray-400 text-[10px] ml-1">({member.desc})</span>}
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
+                                        </React.Fragment>
+                                      ))}
                                     </div>
-                                  ))}
+                                  )}
                                 </div>
-                              )}
+                              ))}
                             </div>
-                          ))}
+                          )}
                         </div>
-                      )}
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : viewMode === 'messenger' ? (
+              <>
+                {/* Chat List View */}
+                <div className="p-2 border-b border-gray-300 bg-gray-50 font-bold text-sm flex justify-between items-center relative">
+                  <span>채팅 리스트</span>
+                  <Plus size={16} className="cursor-pointer" onClick={() => setIsDropdownOpen(!isDropdownOpen)} />
+                  {isDropdownOpen && (
+                    <div className="absolute top-8 right-2 bg-white border border-gray-300 shadow-md z-50 w-32 py-1 text-xs font-normal">
+                      <div className="px-3 py-1.5 hover:bg-gray-100 cursor-pointer" onClick={() => openModal('1:1')}>1:1 메시지</div>
+                      <div className="px-3 py-1.5 hover:bg-gray-100 cursor-pointer" onClick={() => { setActiveChannelId('global'); setIsDropdownOpen(false); }}>전체 메시지</div>
+                      <div className="px-3 py-1.5 hover:bg-gray-100 cursor-pointer" onClick={() => openModal('group')}>그룹 메시지</div>
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 overflow-y-auto">
+                  {chatRooms.map(room => (
+                    <div 
+                      key={room.id}
+                      onClick={() => { setActiveChannelId(room.id); setSelectedFile(null); setReplyingTo(null); }}
+                      className={`p-2 border-b border-gray-200 cursor-pointer hover:bg-blue-50 flex flex-col gap-1 ${activeChannelId === room.id ? 'bg-blue-100' : ''}`}
+                    >
+                      <div className="flex justify-between items-center">
+                        <span className="font-bold text-xs truncate">{room.name}</span>
+                        {room.isGroup && room.id !== 'global' && <span className="text-[10px] text-gray-500">{room.participants.length}명</span>}
+                      </div>
+                      <span className="text-[10px] text-gray-500 truncate">{room.lastMessage || '새로운 채팅방'}</span>
                     </div>
                   ))}
                 </div>
-              )}
-            </div>
-          </>
-        ) : (
-          <>
-            {/* Messenger Header */}
-            <div className="bg-[#C8E6C9] text-black text-center py-2 border-b border-black font-bold text-base">
-              메신저
-            </div>
-            
-            {/* Chat List Header */}
-            <div className="bg-[#a5d6a7] text-black py-2 px-3 border-b border-black font-bold flex justify-between items-center relative">
-              <span>채팅 리스트</span>
-              <button onClick={() => setIsDropdownOpen(!isDropdownOpen)}>
-                <Plus size={20} strokeWidth={3} />
-              </button>
-
-              {/* Dropdown Menu */}
-              {isDropdownOpen && (
-                <div className="absolute top-full right-2 mt-1 bg-white border border-black rounded-md shadow-lg z-50 w-32 py-1">
-                  <button onClick={() => openModal('1:1')} className="w-full text-left px-3 py-1.5 hover:bg-gray-100 text-sm">1 : 1 메시지</button>
-                  <button onClick={() => { setActiveChannelId('global'); setIsDropdownOpen(false); setSelectedFile(null); setReplyingTo(null); }} className="w-full text-left px-3 py-1.5 hover:bg-gray-100 text-sm">전체 메시지</button>
-                  <button onClick={() => openModal('bulk')} className="w-full text-left px-3 py-1.5 hover:bg-gray-100 text-sm">단체 메시지</button>
-                  <button onClick={() => openModal('group')} className="w-full text-left px-3 py-1.5 hover:bg-gray-100 text-sm">그룹 메시지</button>
-                </div>
-              )}
-            </div>
-
-            {/* Chat List Content */}
-            <div className="flex-1 bg-white overflow-y-auto">
-              {chatRooms.map(room => (
-                <div 
-                  key={room.id}
-                  onClick={() => { setActiveChannelId(room.id); setSelectedFile(null); setReplyingTo(null); }}
-                  className={`p-3 border-b border-gray-200 cursor-pointer hover:bg-gray-50 flex flex-col gap-1 ${activeChannelId === room.id ? 'bg-[#e8f5e9]' : ''}`}
-                >
-                  <div className="flex justify-between items-center">
-                    <span className="font-bold truncate">{room.name}</span>
-                    {room.isGroup && room.id !== 'global' && <span className="text-xs text-gray-500">{room.participants.length}명</span>}
+              </>
+            ) : (
+              <div className="flex-1 flex flex-col overflow-hidden">
+                {/* Note Management View (Image 2 style) */}
+                <div className="h-10 border-b border-gray-300 text-white flex items-center px-1 gap-1" style={{ backgroundColor: themeColors[theme] }}>
+                  <div className={`px-4 py-2 text-xs font-bold cursor-pointer ${noteTab === 'inbox' ? 'bg-white text-gray-800' : 'hover:bg-white/10'}`} onClick={() => setNoteTab('inbox')}>받은메시지</div>
+                  <div className={`px-4 py-2 text-xs font-bold cursor-pointer ${noteTab === 'sent' ? 'bg-white text-gray-800' : 'hover:bg-white/10'}`} onClick={() => setNoteTab('sent')}>보낸메시지</div>
+                  <div className="ml-auto flex items-center gap-2 px-2">
+                    <div className="relative flex items-center">
+                      <input type="text" placeholder="검색" className="bg-white text-black text-xs px-2 py-1 rounded-sm outline-none w-40" />
+                      <Search size={14} className="absolute right-2 text-gray-400" />
+                    </div>
+                    <Trash2 size={16} className="cursor-pointer hover:text-red-200" title="메시지 삭제" />
                   </div>
-                  <span className="text-xs text-gray-500 truncate">{room.lastMessage || '새로운 채팅방'}</span>
                 </div>
-              ))}
-            </div>
-          </>
-        )}
+
+                <div className="flex-1 flex overflow-hidden">
+                  {/* Note List */}
+                  <div className="w-1/2 border-r border-gray-300 overflow-y-auto bg-white">
+                    <table className="w-full text-xs border-collapse">
+                      <thead className="bg-gray-50 sticky top-0 border-b border-gray-300">
+                        <tr>
+                          <th className="w-8 p-2"></th>
+                          <th className="p-2 text-left border-r border-gray-200">{noteTab === 'inbox' ? '보낸사람' : '받는사람'}</th>
+                          <th className="p-2 text-left border-r border-gray-200">제목</th>
+                          <th className="p-2 text-left">날짜/시간</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {notes.filter(n => noteTab === 'inbox' ? n.receiverIds.includes(customUser.id) : n.senderId === customUser.id).map(note => (
+                          <tr 
+                            key={note.id} 
+                            className={`border-b border-gray-100 cursor-pointer hover:bg-blue-50 ${selectedNote?.id === note.id ? 'bg-blue-100' : ''}`}
+                            onClick={() => setSelectedNote(note)}
+                          >
+                            <td className="p-2 text-center text-gray-400">★</td>
+                            <td className="p-2 border-r border-gray-100 truncate max-w-[80px]">{noteTab === 'inbox' ? note.senderName : note.receiverIds.length + '명'}</td>
+                            <td className="p-2 border-r border-gray-100 truncate max-w-[150px] font-medium">{note.title}</td>
+                            <td className="p-2 text-gray-500 whitespace-nowrap">
+                              {note.timestamp?.toDate().toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Note Detail */}
+                  <div className="flex-1 bg-white p-4 overflow-y-auto flex flex-col gap-4">
+                    {selectedNote ? (
+                      <>
+                        <div className="border-b border-gray-200 pb-2">
+                          <div className="flex gap-4 mb-2">
+                            <span className="text-gray-500 w-16">제 목</span>
+                            <span className="font-bold">{selectedNote.title}</span>
+                          </div>
+                          <div className="flex gap-4 mb-2">
+                            <span className="text-gray-500 w-16">{noteTab === 'inbox' ? '보낸사람' : '받는사람'}</span>
+                            <span>{noteTab === 'inbox' ? selectedNote.senderName : selectedNote.receiverIds.join(', ')}</span>
+                          </div>
+                        </div>
+                        <div className="flex-1 whitespace-pre-wrap text-sm leading-relaxed">
+                          {selectedNote.content}
+                        </div>
+                        <div className="flex justify-end gap-2 mt-auto pt-4 border-t border-gray-100">
+                          <button className="px-3 py-1 border border-gray-300 rounded text-xs hover:bg-gray-50">회신</button>
+                          <button className="px-3 py-1 border border-gray-300 rounded text-xs hover:bg-gray-50">전달</button>
+                          <button className="px-3 py-1 border border-gray-300 rounded text-xs hover:bg-gray-50">삭제</button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex-1 flex items-center justify-center text-gray-300 font-bold">
+                        메시지를 선택하세요.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* Right Pane (Chat Area or Empty Space) */}
+      {/* Right Pane (Chat Area) */}
       <div className="flex-1 flex flex-col bg-white relative">
-        {viewMode === 'messenger' && activeChannelId ? (
+        {activeChannelId ? (
           <>
             {/* Chat Header */}
-            <div className="bg-white border-b border-black py-3 px-4 font-bold text-lg shadow-sm">
-              {chatRooms.find(r => r.id === activeChannelId)?.name || '채팅방'}
+            <div className="bg-white border-b border-gray-300 py-3 px-4 font-bold text-lg shadow-sm flex items-center justify-between">
+              <span>{chatRooms.find(r => r.id === activeChannelId)?.name || '채팅방'}</span>
             </div>
             
             {/* Chat Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#f8f9fa]">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#f3f4f6]">
               {filteredMessages.map((msg) => {
                 const isMe = msg.senderId === customUser.id;
                 const senderUser = usersList.find(u => u.id === msg.senderId);
@@ -816,7 +1074,7 @@ export default function App() {
                             <button onClick={() => handleDeleteMessage(msg.id)} title="삭제"><Trash2 size={14} className="hover:text-red-500"/></button>
                           </div>
                         )}
-                        <div className={`px-3 py-2 border border-black rounded-lg max-w-[70%] ${isMe ? 'bg-[#dcedc8]' : 'bg-white'}`}>
+                        <div className={`px-3 py-2 border border-gray-300 rounded-lg max-w-[70%] shadow-sm ${isMe ? 'bg-[#fff59d]' : 'bg-white'}`}>
                           {msg.replyTo && (
                             <div className="mb-2 p-2 bg-black/5 rounded text-sm border-l-2 border-black/20 flex flex-col">
                               <span className="font-bold text-xs">{msg.replyTo.senderName}</span>
@@ -838,7 +1096,7 @@ export default function App() {
                               )}
                             </div>
                           )}
-                          {msg.text && <div className="whitespace-pre-wrap break-words">{msg.text}</div>}
+                          {msg.text && <div className="whitespace-pre-wrap break-words text-sm">{msg.text}</div>}
                         </div>
                         {!isMe && (
                           <div className="hidden group-hover:flex items-center gap-1 text-gray-400">
@@ -857,7 +1115,7 @@ export default function App() {
 
             {/* Chat Input */}
             {replyingTo && (
-              <div className="px-4 py-2 bg-gray-50 border-t border-black flex items-center justify-between">
+              <div className="px-4 py-2 bg-gray-50 border-t border-gray-300 flex items-center justify-between">
                 <div className="flex flex-col overflow-hidden">
                   <span className="text-xs font-bold">{replyingTo.senderName}에게 답장</span>
                   <span className="text-sm text-gray-600 truncate">{replyingTo.text || '(파일)'}</span>
@@ -868,7 +1126,7 @@ export default function App() {
               </div>
             )}
             {selectedFile && (
-              <div className="px-4 py-2 bg-gray-50 border-t border-black flex items-center justify-between">
+              <div className="px-4 py-2 bg-gray-50 border-t border-gray-300 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Paperclip size={16} className="text-gray-500" />
                   <span className="text-sm font-bold truncate max-w-[200px]">{selectedFile.name}</span>
@@ -879,7 +1137,7 @@ export default function App() {
                 </button>
               </div>
             )}
-            <div className="p-4 border-t border-black bg-white">
+            <div className="p-4 border-t border-gray-300 bg-white">
               <form onSubmit={handleSendMessage} className="relative flex items-center gap-2">
                 <input
                   type="file"
@@ -900,13 +1158,13 @@ export default function App() {
                     type="text"
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
-                    className="w-full border border-black rounded-full py-2.5 pl-4 pr-12 outline-none focus:ring-1 focus:ring-black"
+                    className="w-full border border-gray-300 rounded-lg py-2.5 pl-4 pr-12 outline-none focus:ring-1 focus:ring-blue-500"
                     placeholder="메시지를 입력하세요..."
                   />
                   <button 
                     type="submit"
                     disabled={!inputText.trim() && !selectedFile}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-black disabled:opacity-30"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-blue-500 hover:text-blue-600 disabled:opacity-30"
                   >
                     <Send size={20} />
                   </button>
@@ -915,8 +1173,11 @@ export default function App() {
             </div>
           </>
         ) : (
-          <div className="flex-1 bg-gray-50 flex items-center justify-center text-gray-400 font-bold">
-            {viewMode === 'messenger' ? '채팅방을 선택해주세요.' : ''}
+          <div className="flex-1 bg-gray-100 flex items-center justify-center text-gray-400 font-bold">
+            <div className="text-center">
+              <MessageSquare size={48} className="mx-auto mb-4 text-gray-300" />
+              <p>조직도에서 대화할 상대를 더블클릭하거나<br/>메신저 탭에서 채팅방을 선택하세요.</p>
+            </div>
           </div>
         )}
       </div>
@@ -924,32 +1185,32 @@ export default function App() {
       {/* User Selection Modal */}
       {modalType && (
         <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white border border-black rounded-lg shadow-xl w-[400px] flex flex-col max-h-[80vh]">
-            <div className="flex justify-between items-center p-4 border-b border-black bg-[#5cb85c] text-white rounded-t-lg">
-              <h2 className="font-bold text-lg">
+          <div className="bg-white border border-gray-300 rounded shadow-xl w-[400px] flex flex-col max-h-[80vh]">
+            <div className="flex justify-between items-center p-3 border-b border-gray-300 bg-[#3b82f6] text-white rounded-t">
+              <h2 className="font-bold text-sm">
                 {modalType === '1:1' ? '1:1 채팅 대상 선택' : modalType === 'bulk' ? '단체 메시지 대상 선택' : modalType === 'forward' ? '메시지 전달 대상 선택' : '그룹 채팅 대상 선택'}
               </h2>
-              <button onClick={closeModal}><X size={24} /></button>
+              <button onClick={closeModal} className="hover:text-gray-200"><X size={18} /></button>
             </div>
             
-            <div className="p-4 border-b border-gray-200">
+            <div className="p-3 border-b border-gray-200 bg-gray-50">
               <input 
                 type="text" 
                 placeholder="이름 검색..." 
                 value={userSearchQuery}
                 onChange={(e) => setUserSearchQuery(e.target.value)}
-                className="w-full border border-black rounded p-2 outline-none"
+                className="w-full border border-gray-300 p-1.5 outline-none text-sm"
               />
             </div>
 
             {modalType === 'group' && (
-              <div className="p-4 border-b border-gray-200 bg-gray-50">
-                <label className="block text-sm font-bold mb-2">그룹 채팅방 이름</label>
+              <div className="p-3 border-b border-gray-200 bg-gray-50">
+                <label className="block text-xs font-bold mb-1">그룹 채팅방 이름</label>
                 <input
                   type="text"
                   value={groupNameInput}
                   onChange={e => setGroupNameInput(e.target.value)}
-                  className="w-full border border-black rounded p-2 outline-none"
+                  className="w-full border border-gray-300 p-1.5 outline-none text-sm"
                   placeholder="채팅방 이름을 입력하세요 (선택)"
                 />
               </div>
@@ -962,17 +1223,17 @@ export default function App() {
                   <div 
                     key={u.id} 
                     onClick={() => toggleUserSelection(u.id)}
-                    className="flex items-center gap-3 p-2 hover:bg-gray-100 cursor-pointer rounded"
+                    className="flex items-center gap-3 p-2 hover:bg-blue-50 cursor-pointer rounded"
                   >
-                    <div className={`w-5 h-5 border border-black rounded flex items-center justify-center ${isSelected ? 'bg-[#5cb85c]' : 'bg-white'}`}>
-                      {isSelected && <Check size={14} className="text-white" strokeWidth={3} />}
+                    <div className={`w-4 h-4 border border-gray-400 rounded-sm flex items-center justify-center ${isSelected ? 'bg-[#3b82f6] border-[#3b82f6]' : 'bg-white'}`}>
+                      {isSelected && <Check size={12} className="text-white" strokeWidth={3} />}
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-gray-500 overflow-hidden border border-gray-300">
                         {u.photo ? <img src={u.photo} alt="profile" className="w-full h-full object-cover" /> : <User size={16} />}
                       </div>
                       <div className="flex flex-col">
-                        <span className="font-bold">{u.name}</span>
+                        <span className="font-bold text-sm">{u.name}</span>
                         {u.role && <span className="text-xs text-gray-500">{u.role}</span>}
                       </div>
                     </div>
@@ -982,23 +1243,23 @@ export default function App() {
             </div>
 
             {modalType === 'bulk' && (
-              <div className="p-4 border-t border-black bg-gray-50">
-                <label className="block text-sm font-bold mb-2">보낼 메시지</label>
+              <div className="p-3 border-t border-gray-300 bg-gray-50">
+                <label className="block text-xs font-bold mb-1">보낼 메시지</label>
                 <textarea 
                   value={bulkMessageText}
                   onChange={e => setBulkMessageText(e.target.value)}
-                  className="w-full border border-black rounded p-2 outline-none resize-none h-24"
+                  className="w-full border border-gray-300 p-2 outline-none resize-none h-20 text-sm"
                   placeholder="선택한 인원들에게 개별적으로 전송될 메시지를 입력하세요."
                 />
               </div>
             )}
 
-            <div className="p-4 border-t border-black flex justify-end gap-2 bg-white rounded-b-lg">
-              <button onClick={closeModal} className="px-4 py-2 border border-black rounded font-bold hover:bg-gray-100">취소</button>
+            <div className="p-3 border-t border-gray-300 flex justify-end gap-2 bg-gray-100 rounded-b">
+              <button onClick={closeModal} className="px-3 py-1.5 border border-gray-400 bg-white rounded text-xs hover:bg-gray-50">취소</button>
               <button 
                 onClick={handleCreateChat}
                 disabled={selectedUsers.length === 0 || (modalType === 'bulk' && !bulkMessageText.trim()) || (modalType === 'forward' && !forwardMessage)}
-                className="px-4 py-2 bg-[#5cb85c] text-white border border-black rounded font-bold hover:bg-green-700 disabled:opacity-50"
+                className="px-3 py-1.5 bg-[#3b82f6] text-white border border-[#2563eb] rounded text-xs hover:bg-blue-600 disabled:opacity-50"
               >
                 {modalType === 'bulk' ? '전송' : modalType === 'forward' ? '전달' : '채팅방 생성'}
               </button>
@@ -1007,42 +1268,125 @@ export default function App() {
         </div>
       )}
 
-      {/* Profile Settings Modal */}
+      {/* Note Send Modal (Image 1 style) */}
+      {noteModalOpen && (
+        <div className="absolute inset-0 bg-black/30 flex items-center justify-center z-[100]">
+          <div className="bg-white border border-gray-400 shadow-2xl w-[600px] flex flex-col rounded-sm overflow-hidden">
+            <div className="bg-[#2c3e50] text-white p-2 flex justify-between items-center">
+              <span className="text-xs font-bold">메시지 전송</span>
+              <div className="flex gap-1">
+                <button className="hover:bg-white/20 p-0.5 rounded"><MinusSquare size={14} /></button>
+                <button className="hover:bg-white/20 p-0.5 rounded"><PlusSquare size={14} /></button>
+                <button onClick={() => setNoteModalOpen(false)} className="hover:bg-red-500 p-0.5 rounded"><X size={14} /></button>
+              </div>
+            </div>
+
+            <div className="flex bg-[#4b5563] p-4 gap-4 items-center">
+              <div className="w-16 h-16 bg-gray-300 rounded-full flex items-center justify-center overflow-hidden border-2 border-white/20">
+                <User size={40} className="text-white" />
+              </div>
+              <div className="flex-1 flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-white text-xs w-12 font-bold">제 목</span>
+                  <input 
+                    type="text" 
+                    className="flex-1 bg-white border border-gray-400 px-2 py-1 text-xs outline-none rounded-sm" 
+                    placeholder="제목을 입력하세요."
+                    value={noteTitle}
+                    onChange={e => setNoteTitle(e.target.value)}
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-white text-xs w-12 font-bold">받는사람</span>
+                  <div className="flex-1 bg-white border border-gray-400 px-2 py-1 text-xs min-h-[26px] flex flex-wrap gap-1 rounded-sm">
+                    {noteReceivers.map(id => {
+                      const u = usersList.find(ul => ul.id === id);
+                      return (
+                        <span key={id} className="bg-gray-100 border border-gray-300 px-1 rounded-sm flex items-center gap-1">
+                          {u?.name} <X size={10} className="cursor-pointer" onClick={() => setNoteReceivers(prev => prev.filter(rid => rid !== id))} />
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 ml-14">
+                   <label className="flex items-center gap-1 text-white text-[10px] cursor-pointer">
+                     <input type="checkbox" className="w-3 h-3" /> 예약전송
+                   </label>
+                   <label className="flex items-center gap-1 text-white text-[10px] cursor-pointer">
+                     <input type="checkbox" className="w-3 h-3" /> 나에게 보내기
+                   </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-gray-100 border-b border-gray-300 p-1 flex items-center gap-2">
+              <select className="text-[10px] border border-gray-300 px-1 py-0.5 outline-none bg-white"><option>나눔고딕</option></select>
+              <select className="text-[10px] border border-gray-300 px-1 py-0.5 outline-none bg-white"><option>2 (10pt)</option></select>
+              <div className="flex gap-1 border-l border-gray-300 pl-2">
+                <button className="p-1 hover:bg-gray-200 rounded-sm font-bold text-xs">A+</button>
+                <button className="p-1 hover:bg-gray-200 rounded-sm font-bold text-xs italic">I</button>
+                <button className="p-1 hover:bg-gray-200 rounded-sm font-bold text-xs underline">U</button>
+              </div>
+            </div>
+
+            <textarea 
+              className="flex-1 p-4 text-sm outline-none resize-none min-h-[200px]"
+              placeholder="내용을 입력하세요."
+              value={noteContent}
+              onChange={e => setNoteContent(e.target.value)}
+            />
+
+            <div className="bg-gray-100 p-2 flex justify-between items-center border-t border-gray-300">
+              <div className="flex gap-1">
+                <button className="px-2 py-1 bg-white border border-gray-300 text-[10px] rounded-sm hover:bg-gray-50">파일첨부</button>
+                <button className="px-2 py-1 bg-white border border-gray-300 text-[10px] rounded-sm hover:bg-gray-50">편지</button>
+                <button className="px-2 py-1 bg-white border border-gray-300 text-[10px] rounded-sm hover:bg-gray-50">스티커</button>
+                <button className="px-2 py-1 bg-white border border-gray-300 text-[10px] rounded-sm hover:bg-gray-50">채팅하기</button>
+              </div>
+              <div className="flex gap-1">
+                <button onClick={submitNote} className="px-4 py-1 bg-white border border-gray-400 text-[10px] font-bold rounded-sm hover:bg-gray-50">보내기</button>
+                <button onClick={() => setNoteModalOpen(false)} className="px-4 py-1 bg-white border border-gray-400 text-[10px] font-bold rounded-sm hover:bg-gray-50">닫기</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {isProfileModalOpen && (
         <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white border border-black rounded-lg shadow-xl w-[400px] flex flex-col">
-            <div className="flex justify-between items-center p-4 border-b border-black bg-[#5cb85c] text-white rounded-t-lg">
-              <h2 className="font-bold text-lg">프로필 설정</h2>
-              <button onClick={() => setIsProfileModalOpen(false)}><X size={24} /></button>
+          <div className="bg-white border border-gray-300 rounded shadow-xl w-[350px] flex flex-col">
+            <div className="flex justify-between items-center p-3 border-b border-gray-300 bg-[#3b82f6] text-white rounded-t">
+              <h2 className="font-bold text-sm">프로필 설정</h2>
+              <button onClick={() => setIsProfileModalOpen(false)} className="hover:text-gray-200"><X size={18} /></button>
             </div>
             <div className="p-4 space-y-4">
               <div className="flex justify-center mb-2">
-                <div className="w-20 h-20 rounded-full border-2 border-[#5cb85c] overflow-hidden flex items-center justify-center bg-gray-100">
+                <div className="w-16 h-16 rounded-full border-2 border-[#3b82f6] overflow-hidden flex items-center justify-center bg-gray-100">
                   {profileEdit.photo ? (
                     <img src={profileEdit.photo} alt="preview" className="w-full h-full object-cover" />
                   ) : (
-                    <User size={40} className="text-gray-400" />
+                    <User size={32} className="text-gray-400" />
                   )}
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-bold mb-1">프로필 사진 URL</label>
-                <input type="text" value={profileEdit.photo} onChange={e => setProfileEdit({...profileEdit, photo: e.target.value})} className="w-full border border-black rounded p-2 outline-none" placeholder="이미지 URL을 입력하세요" />
+                <label className="block text-xs font-bold mb-1">프로필 사진 URL</label>
+                <input type="text" value={profileEdit.photo} onChange={e => setProfileEdit({...profileEdit, photo: e.target.value})} className="w-full border border-gray-300 p-1.5 outline-none text-sm" placeholder="이미지 URL을 입력하세요" />
               </div>
               <div>
-                <label className="block text-sm font-bold mb-1">비밀번호 변경</label>
-                <input type="password" value={profileEdit.pw} onChange={e => setProfileEdit({...profileEdit, pw: e.target.value})} className="w-full border border-black rounded p-2 outline-none" placeholder="새 비밀번호" />
+                <label className="block text-xs font-bold mb-1">비밀번호 변경</label>
+                <input type="password" value={profileEdit.pw} onChange={e => setProfileEdit({...profileEdit, pw: e.target.value})} className="w-full border border-gray-300 p-1.5 outline-none text-sm" placeholder="새 비밀번호" />
               </div>
               <div>
-                <label className="block text-sm font-bold mb-1">직급 변경</label>
-                <input type="text" value={profileEdit.role} onChange={e => setProfileEdit({...profileEdit, role: e.target.value})} className="w-full border border-black rounded p-2 outline-none" placeholder="예: 과장, 전문의" />
+                <label className="block text-xs font-bold mb-1">직급 변경</label>
+                <input type="text" value={profileEdit.role} onChange={e => setProfileEdit({...profileEdit, role: e.target.value})} className="w-full border border-gray-300 p-1.5 outline-none text-sm" placeholder="예: 과장, 전문의" />
               </div>
             </div>
-            <div className="p-4 border-t border-black flex justify-between items-center bg-gray-50 rounded-b-lg">
-              <button onClick={handleDeleteAccount} className="text-red-600 font-bold hover:underline text-sm">회원탈퇴</button>
+            <div className="p-3 border-t border-gray-300 flex justify-between items-center bg-gray-100 rounded-b">
+              <button onClick={handleDeleteAccount} className="text-red-500 hover:text-red-600 text-xs hover:underline">회원탈퇴</button>
               <div className="flex gap-2">
-                <button onClick={() => setIsProfileModalOpen(false)} className="px-4 py-2 border border-black rounded font-bold hover:bg-gray-100">취소</button>
-                <button onClick={handleSaveProfile} className="px-4 py-2 bg-[#5cb85c] text-white border border-black rounded font-bold hover:bg-green-700">저장</button>
+                <button onClick={() => setIsProfileModalOpen(false)} className="px-3 py-1.5 border border-gray-400 bg-white rounded text-xs hover:bg-gray-50">취소</button>
+                <button onClick={handleSaveProfile} className="px-3 py-1.5 bg-[#3b82f6] text-white border border-[#2563eb] rounded text-xs hover:bg-blue-600">저장</button>
               </div>
             </div>
           </div>
@@ -1051,13 +1395,13 @@ export default function App() {
 
       {/* Confirm Delete Modal */}
       {confirmDelete && (
-        <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-[60]">
-          <div className="bg-white border border-black rounded-lg p-6 w-80 text-center shadow-2xl">
-            <h3 className="text-lg font-bold mb-2 text-red-600">회원탈퇴</h3>
-            <p className="text-sm text-gray-600 mb-6">정말로 탈퇴하시겠습니까?<br/>모든 정보가 삭제되며 복구할 수 없습니다.</p>
-            <div className="flex justify-center gap-3">
-              <button onClick={() => setConfirmDelete(false)} className="px-4 py-2 border border-black rounded font-bold hover:bg-gray-100">취소</button>
-              <button onClick={executeDeleteAccount} className="px-4 py-2 bg-red-600 text-white border border-black rounded font-bold hover:bg-red-700">탈퇴하기</button>
+        <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-[60]">
+          <div className="bg-white border border-gray-300 rounded p-5 w-72 text-center shadow-xl">
+            <h3 className="text-sm font-bold mb-2 text-red-500">회원탈퇴</h3>
+            <p className="text-xs text-gray-600 mb-5">정말로 탈퇴하시겠습니까?<br/>모든 정보가 삭제되며 복구할 수 없습니다.</p>
+            <div className="flex justify-center gap-2">
+              <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 border border-gray-400 bg-white rounded text-xs hover:bg-gray-50">취소</button>
+              <button onClick={executeDeleteAccount} className="px-3 py-1.5 bg-red-500 text-white border border-red-600 rounded text-xs hover:bg-red-600">탈퇴하기</button>
             </div>
           </div>
         </div>
