@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { User, ChevronDown, ChevronRight, Plus, Send, MessageSquare, Users, X, Check, Paperclip, FileText, Copy, Forward, Trash2, Reply, MinusSquare, PlusSquare, Search, Settings, Box, Calendar, Save, Grid, Home, Smile, CheckSquare, MessageCircle } from 'lucide-react';
+import { User, ChevronDown, ChevronRight, Plus, Send, MessageSquare, Users, X, Check, Paperclip, FileText, Copy, Forward, Trash2, Reply, MinusSquare, PlusSquare, Search, Settings, Box, Calendar, Save, Grid, Home, Smile, CheckSquare, MessageCircle, Mail, Star } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { db } from './firebase';
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, where, deleteDoc, doc } from 'firebase/firestore';
 
@@ -33,6 +34,8 @@ const INITIAL_USERS: CustomUser[] = [
   { name: '준석준', id: 'ilbae', pw: 'haesol123' },
   { name: '박시윤', id: 'bbaksi', pw: 'haesol123' },
 ];
+
+const DEFAULT_PROFILE_PIC = 'https://e7.pngegg.com/pngimages/906/222/png-clipart-computer-icons-user-profile-avatar-french-people-computer-network-heroes-thumbnail.png';
 
 // --- Mock Data based on the provided images ---
 const PERSONNEL_DATA = {
@@ -147,7 +150,7 @@ const PERSONNEL_DATA = {
   ]
 };
 
-type ViewMode = 'personnel' | 'messenger' | 'notes';
+type ViewMode = 'personnel' | 'messenger';
 type TabType = '의료진' | '간호사' | '원무과';
 type ChatRoom = { id: string, name: string, participants: string[], isGroup: boolean, lastMessage?: string, timestamp?: any };
 type Note = { id: string, senderId: string, senderName: string, receiverIds: string[], title: string, content: string, timestamp: any, isRead?: boolean };
@@ -175,6 +178,10 @@ export default function App() {
   const [messages, setMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
+  const changeActiveChannel = (channelId: string | null) => {
+    setActiveChannelId(channelId);
+    activeChannelIdRef.current = channelId;
+  };
   const [chatRooms, setChatRooms] = useState<ChatRoom[]>([]);
   const [selectedFile, setSelectedFile] = useState<{name: string, type: string, data: string, size: number} | null>(null);
   const [replyingTo, setReplyingTo] = useState<any>(null);
@@ -190,9 +197,19 @@ export default function App() {
   const [noteContent, setNoteContent] = useState('');
   const [noteReceivers, setNoteReceivers] = useState<string[]>([]);
   const [noteFontSize, setNoteFontSize] = useState('14px');
+  const [noteSearchQuery, setNoteSearchQuery] = useState('');
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const [toasts, setToasts] = useState<{ id: string; title: string; body: string; type: 'message' | 'note' }[]>([]);
+  const isInitialMessagesLoad = useRef(true);
+  const isInitialNotesLoad = useRef(true);
+  const activeChannelIdRef = useRef(activeChannelId);
+
+  useEffect(() => {
+    activeChannelIdRef.current = activeChannelId;
+  }, [activeChannelId]);
 
   // Modal State
-  const [modalType, setModalType] = useState<'1:1' | 'bulk' | 'group' | 'forward' | null>(null);
+  const [modalType, setModalType] = useState<'1:1' | 'bulk' | 'group' | 'forward' | 'note_receivers' | null>(null);
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [bulkMessageText, setBulkMessageText] = useState('');
   const [groupNameInput, setGroupNameInput] = useState('');
@@ -232,7 +249,29 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  const addToast = (title: string, body: string, type: 'message' | 'note') => {
+    const id = Date.now().toString();
+    setToasts(prev => [...prev, { id, title, body, type }]);
+    
+    // Play notification sound
+    const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3');
+    audio.play().catch(() => {}); // Ignore errors if browser blocks autoplay
+
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 5000);
+  };
+
+  useEffect(() => {
     if (!customUser) return;
+    
+    // Reset initial load flag for new user/session
+    isInitialMessagesLoad.current = true;
     
     // Listen to all messages where the user is a participant or it's a global message
     const q = query(collection(db, 'messages'), orderBy('timestamp', 'asc'));
@@ -242,6 +281,25 @@ export default function App() {
       
       // Add global room
       roomsMap.set('global', { id: 'global', name: '전체 메시지', participants: [], isGroup: true });
+
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === 'added' && !isInitialMessagesLoad.current) {
+          const data = change.doc.data();
+          if (data.senderId !== customUser.id && data.channelId !== activeChannelIdRef.current) {
+            setUnreadCounts(prev => ({
+              ...prev,
+              [data.channelId]: (prev[data.channelId] || 0) + 1
+            }));
+            
+            if (Notification.permission === 'granted' && document.hidden) {
+              new Notification(`새 메시지: ${data.senderName}`, {
+                body: data.text || '(파일)',
+              });
+            }
+            addToast(`새 메시지: ${data.senderName}`, data.text || '(파일)', 'message');
+          }
+        }
+      });
 
       snapshot.forEach((doc) => {
         const data = doc.data();
@@ -288,6 +346,10 @@ export default function App() {
         return b.timestamp.toMillis() - a.timestamp.toMillis();
       }));
 
+      if (isInitialMessagesLoad.current) {
+        isInitialMessagesLoad.current = false;
+      }
+
       setTimeout(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 100);
@@ -295,11 +357,32 @@ export default function App() {
     return () => unsubscribe();
   }, [customUser]);
 
+  useEffect(() => {
+    if (activeChannelId) {
+      setUnreadCounts(prev => ({
+        ...prev,
+        [activeChannelId]: 0
+      }));
+    }
+  }, [activeChannelId]);
+
+  useEffect(() => {
+    if (activeChannelId === 'notes_management') {
+      setUnreadCounts(prev => ({
+        ...prev,
+        'notes': 0
+      }));
+    }
+  }, [activeChannelId]);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
     const user = usersList.find(u => u.id === loginId && u.pw === loginPw);
     if (user) {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
       setCustomUser(user);
       if (isAutoLogin) {
         localStorage.setItem('haesol_user', JSON.stringify(user));
@@ -313,7 +396,7 @@ export default function App() {
 
   const handleLogout = () => {
     setCustomUser(null);
-    setActiveChannelId(null);
+    changeActiveChannel(null);
     localStorage.removeItem('haesol_user');
     sessionStorage.removeItem('haesol_user');
   };
@@ -356,7 +439,7 @@ export default function App() {
     setIsProfileModalOpen(false);
     
     setCustomUser(null);
-    setActiveChannelId(null);
+    changeActiveChannel(null);
     localStorage.removeItem('haesol_user');
     sessionStorage.removeItem('haesol_user');
   };
@@ -443,7 +526,7 @@ export default function App() {
           isGroup: false
         }, ...prev]);
       }
-      setActiveChannelId(channelId);
+      changeActiveChannel(channelId);
       closeModal();
     } else if (modalType === 'group') {
       if (selectedUsers.length < 2) return;
@@ -457,7 +540,7 @@ export default function App() {
         participants,
         isGroup: true
       }, ...prev]);
-      setActiveChannelId(channelId);
+      changeActiveChannel(channelId);
       closeModal();
     } else if (modalType === 'bulk') {
       if (selectedUsers.length === 0 || !bulkMessageText.trim()) return;
@@ -507,6 +590,9 @@ export default function App() {
       closeModal();
       setForwardMessage(null);
       setViewMode('messenger');
+    } else if (modalType === 'note_receivers') {
+      setNoteReceivers(prev => Array.from(new Set([...prev, ...selectedUsers])));
+      closeModal();
     }
   };
 
@@ -582,7 +668,7 @@ export default function App() {
         isGroup: false
       }, ...prev]);
     }
-    setActiveChannelId(channelId);
+    changeActiveChannel(channelId);
     setViewMode('messenger');
   };
 
@@ -645,13 +731,50 @@ export default function App() {
   };
 
   const handleSendNote = () => {
-    if (!customUser || selectedTreeMembers.length === 0) return;
+    if (!customUser) return;
     setNoteReceivers(selectedTreeMembers);
     setNoteModalOpen(true);
   };
 
+  const handleReplyNote = (note: Note) => {
+    setNoteReceivers([note.senderId]);
+    setNoteTitle(`Re: ${note.title}`);
+    setNoteContent(`\n\n----- Original Message -----\nFrom: ${note.senderName}\nDate: ${note.timestamp?.toDate().toLocaleString()}\n\n${note.content}`);
+    setNoteModalOpen(true);
+  };
+
+  const handleForwardNote = (note: Note) => {
+    setNoteReceivers([]);
+    setNoteTitle(`Fwd: ${note.title}`);
+    setNoteContent(`\n\n----- Forwarded Message -----\nFrom: ${note.senderName}\nDate: ${note.timestamp?.toDate().toLocaleString()}\n\n${note.content}`);
+    setNoteModalOpen(true);
+  };
+
+  const handleDeleteNote = async (noteId: string) => {
+    if (!window.confirm('정말 삭제하시겠습니까?')) return;
+    try {
+      await deleteDoc(doc(db, 'notes', noteId));
+      setSelectedNote(null);
+    } catch (error) {
+      console.error('Error deleting note:', error);
+    }
+  };
+
   const submitNote = async () => {
-    if (!customUser || !noteTitle || noteReceivers.length === 0) return;
+    if (!customUser) return;
+    if (!noteTitle.trim()) {
+      alert('제목을 입력해주세요.');
+      return;
+    }
+    if (noteReceivers.length === 0) {
+      alert('받는 사람을 선택해주세요.');
+      return;
+    }
+    if (!noteContent.trim()) {
+      alert('내용을 입력해주세요.');
+      return;
+    }
+
     try {
       await addDoc(collection(db, 'notes'), {
         senderId: customUser.id,
@@ -662,20 +785,47 @@ export default function App() {
         timestamp: serverTimestamp(),
         isRead: false
       });
+      alert('쪽지를 성공적으로 보냈습니다.');
       setNoteModalOpen(false);
       setNoteTitle('');
       setNoteContent('');
       setNoteReceivers([]);
+      setSelectedTreeMembers([]); // Clear selection after sending
     } catch (e) {
-      console.error(e);
+      console.error("Error sending note: ", e);
+      alert('쪽지 전송 중 오류가 발생했습니다: ' + (e instanceof Error ? e.message : String(e)));
     }
   };
 
   useEffect(() => {
     if (!customUser) return;
+    
+    // Reset initial load flag for new user/session
+    isInitialNotesLoad.current = true;
+    
     const q = query(collection(db, 'notes'), orderBy('timestamp', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const nts: Note[] = [];
+      
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === 'added' && !isInitialNotesLoad.current) {
+          const data = change.doc.data();
+          if (data.senderId !== customUser.id && data.receiverIds.includes(customUser.id)) {
+            setUnreadCounts(prev => ({
+              ...prev,
+              'notes': (prev['notes'] || 0) + 1
+            }));
+            
+            if (Notification.permission === 'granted' && document.hidden) {
+              new Notification(`새 쪽지: ${data.senderName}`, {
+                body: data.title,
+              });
+            }
+            addToast(`새 쪽지: ${data.senderName}`, data.title, 'note');
+          }
+        }
+      });
+
       snapshot.forEach(doc => {
         const data = doc.data();
         if (data.senderId === customUser.id || data.receiverIds.includes(customUser.id)) {
@@ -683,6 +833,10 @@ export default function App() {
         }
       });
       setNotes(nts);
+      
+      if (isInitialNotesLoad.current) {
+        isInitialNotesLoad.current = false;
+      }
     });
     return () => unsubscribe();
   }, [customUser]);
@@ -746,7 +900,7 @@ export default function App() {
           <div className="flex justify-between items-start">
             <div className="flex items-center gap-2">
               <div className="relative cursor-pointer" onClick={() => setIsProfileModalOpen(true)}>
-                <img src={customUser.photo || 'https://via.placeholder.com/40'} className="w-12 h-12 rounded-full border-2 border-white/50 object-cover bg-white" alt="profile" />
+                <img src={customUser.photo || DEFAULT_PROFILE_PIC} className="w-12 h-12 rounded-full border-2 border-white/50 object-cover bg-white" alt="profile" />
                 <Settings size={14} className="absolute bottom-0 right-0 bg-gray-600 rounded-full p-0.5" />
               </div>
               <div className="flex flex-col">
@@ -799,8 +953,8 @@ export default function App() {
                 </div>
               </div>
               <Home size={18} className="cursor-pointer hover:text-gray-200" title="공지" onClick={() => openModal('1:1')} />
-              <Smile size={18} className="cursor-pointer hover:text-gray-200" title="설문" onClick={() => { setActiveChannelId('global'); setViewMode('messenger'); }} />
-              <CheckSquare size={18} className="cursor-pointer hover:text-gray-200" title="메모" onClick={() => openModal('group')} />
+              <Smile size={18} className="cursor-pointer hover:text-gray-200" title="설문" onClick={() => { changeActiveChannel('global'); setViewMode('messenger'); }} />
+              <CheckSquare size={18} className={`cursor-pointer hover:text-gray-200 ${activeChannelId === 'notes_management' ? 'text-blue-200' : ''}`} title="쪽지 관리함" onClick={() => { changeActiveChannel('notes_management'); setViewMode('messenger'); }} />
               <MessageCircle size={18} className="cursor-pointer hover:text-gray-200" title="메신저" onClick={() => setViewMode(viewMode === 'messenger' ? 'personnel' : 'messenger')} />
               <Save size={18} className="cursor-pointer hover:text-gray-200" title="저장" />
             </div>
@@ -816,7 +970,25 @@ export default function App() {
                 조직도 <ChevronDown size={12} />
               </div>
               <div className="p-2 border-b border-gray-300 hover:bg-white cursor-pointer" onClick={() => openModal('1:1')}>1:1 채팅</div>
-              <div className="p-2 border-b border-gray-300 hover:bg-white cursor-pointer" onClick={() => { setActiveChannelId('global'); setViewMode('messenger'); }}>전체채팅</div>
+              <div 
+                className={`p-2 border-b border-gray-300 hover:bg-white cursor-pointer relative ${activeChannelId === 'global' && viewMode === 'messenger' ? 'bg-white font-bold border-l-2 border-blue-500' : ''}`} 
+                onClick={() => { changeActiveChannel('global'); setViewMode('messenger'); }}
+              >
+                전체채팅
+              </div>
+              <div 
+                className={`p-2 border-b border-gray-300 hover:bg-white cursor-pointer relative ${activeChannelId === 'notes_management' && viewMode === 'messenger' ? 'bg-white font-bold border-l-2 border-blue-500' : ''}`} 
+                onClick={() => { changeActiveChannel('notes_management'); setViewMode('messenger'); }}
+              >
+                <div className="flex justify-between items-center">
+                  <span>쪽지 관리함</span>
+                  {unreadCounts['notes'] > 0 && (
+                    <span className="bg-red-500 text-white text-[9px] px-1 rounded-full min-w-[14px] text-center">
+                      {unreadCounts['notes']}
+                    </span>
+                  )}
+                </div>
+              </div>
               <div className="p-2 border-b border-gray-300 hover:bg-white cursor-pointer" onClick={() => openModal('group')}>단체채팅</div>
               <div className="p-2 border-b border-gray-300 flex justify-between items-center hover:bg-white cursor-pointer" onClick={() => openModal('group')}>
                 그룹채팅 <ChevronDown size={12} />
@@ -832,17 +1004,31 @@ export default function App() {
                 {chatRooms.map(room => (
                   <div 
                     key={room.id}
-                    onClick={() => { setActiveChannelId(room.id); setViewMode('messenger'); setSelectedFile(null); setReplyingTo(null); }}
-                    className={`p-2 border-b border-gray-200 cursor-pointer hover:bg-white flex flex-col gap-0.5 ${activeChannelId === room.id && viewMode === 'messenger' ? 'bg-white border-l-2 border-blue-500' : ''}`}
+                    onClick={() => { changeActiveChannel(room.id); setViewMode('messenger'); setSelectedFile(null); setReplyingTo(null); }}
+                    className={`p-2 border-b border-gray-200 cursor-pointer hover:bg-white flex flex-col gap-0.5 relative ${activeChannelId === room.id && viewMode === 'messenger' ? 'bg-white border-l-2 border-blue-500' : ''}`}
                   >
-                    <span className="font-bold text-[10px] truncate">{room.name}</span>
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-[10px] truncate">{room.name}</span>
+                      {unreadCounts[room.id] > 0 && (
+                        <span className="bg-red-500 text-white text-[8px] px-1 rounded-full min-w-[14px] text-center">
+                          {unreadCounts[room.id]}
+                        </span>
+                      )}
+                    </div>
                     <span className="text-[9px] text-gray-400 truncate">{room.lastMessage || '...'}</span>
                   </div>
                 ))}
               </div>
 
               <div className="p-2 border-b border-gray-300 hover:bg-white cursor-pointer" onClick={handleSendNote}>쪽지</div>
-              <div className="p-2 border-b border-gray-300 hover:bg-white cursor-pointer" onClick={() => setViewMode('notes')}>쪽지 관리함</div>
+              <div className="p-2 border-b border-gray-300 hover:bg-white cursor-pointer flex justify-between items-center" onClick={() => { changeActiveChannel('notes_management'); setViewMode('messenger'); }}>
+                <span>쪽지 관리함</span>
+                {unreadCounts['notes'] > 0 && (
+                  <span className="bg-red-500 text-white text-[8px] px-1 rounded-full min-w-[14px] text-center">
+                    {unreadCounts['notes']}
+                  </span>
+                )}
+              </div>
             </div>
             <div className="p-2 border-t border-gray-300 hover:bg-white cursor-pointer text-red-500 text-center text-[10px]" onClick={handleLogout}>로그아웃</div>
           </div>
@@ -998,7 +1184,7 @@ export default function App() {
                   )}
                 </div>
               </>
-            ) : viewMode === 'messenger' ? (
+            ) : (
               <>
                 {/* Chat List View */}
                 <div className="p-2 border-b border-gray-300 bg-gray-50 font-bold text-sm flex justify-between items-center relative">
@@ -1007,7 +1193,7 @@ export default function App() {
                   {isDropdownOpen && (
                     <div className="absolute top-8 right-2 bg-white border border-gray-300 shadow-md z-50 w-32 py-1 text-xs font-normal">
                       <div className="px-3 py-1.5 hover:bg-gray-100 cursor-pointer" onClick={() => openModal('1:1')}>1:1 메시지</div>
-                      <div className="px-3 py-1.5 hover:bg-gray-100 cursor-pointer" onClick={() => { setActiveChannelId('global'); setIsDropdownOpen(false); }}>전체 메시지</div>
+                      <div className="px-3 py-1.5 hover:bg-gray-100 cursor-pointer" onClick={() => { changeActiveChannel('global'); setIsDropdownOpen(false); }}>전체 메시지</div>
                       <div className="px-3 py-1.5 hover:bg-gray-100 cursor-pointer" onClick={() => openModal('group')}>그룹 메시지</div>
                     </div>
                   )}
@@ -1016,7 +1202,7 @@ export default function App() {
                   {chatRooms.map(room => (
                     <div 
                       key={room.id}
-                      onClick={() => { setActiveChannelId(room.id); setSelectedFile(null); setReplyingTo(null); }}
+                      onClick={() => { changeActiveChannel(room.id); setSelectedFile(null); setReplyingTo(null); }}
                       className={`p-2 border-b border-gray-200 cursor-pointer hover:bg-blue-50 flex flex-col gap-1 ${activeChannelId === room.id ? 'bg-blue-100' : ''}`}
                     >
                       <div className="flex justify-between items-center">
@@ -1028,99 +1214,6 @@ export default function App() {
                   ))}
                 </div>
               </>
-            ) : (
-              <div className="flex-1 flex flex-col overflow-hidden">
-                {/* Note Management View (Image 2 style) */}
-                <div className="h-10 border-b border-gray-300 text-white flex items-center px-1 gap-1" style={{ backgroundColor: themeColors[theme] }}>
-                  <div className={`px-4 py-2 text-xs font-bold cursor-pointer ${noteTab === 'inbox' ? 'bg-white text-gray-800' : 'hover:bg-white/10'}`} onClick={() => setNoteTab('inbox')}>받은메시지</div>
-                  <div className={`px-4 py-2 text-xs font-bold cursor-pointer ${noteTab === 'sent' ? 'bg-white text-gray-800' : 'hover:bg-white/10'}`} onClick={() => setNoteTab('sent')}>보낸메시지</div>
-                  <div className="ml-auto flex items-center gap-2 px-2">
-                    <div className="relative flex items-center">
-                      <input type="text" placeholder="검색" className="bg-white text-black text-xs px-2 py-1 rounded-sm outline-none w-40" />
-                      <Search size={14} className="absolute right-2 text-gray-400" />
-                    </div>
-                    <Trash2 size={16} className="cursor-pointer hover:text-red-200" title="메시지 삭제" />
-                  </div>
-                </div>
-
-                <div className="flex-1 flex overflow-hidden">
-                  {/* Note List */}
-                  <div className="w-1/2 border-r border-gray-300 overflow-y-auto bg-white">
-                    <table className="w-full text-xs border-collapse">
-                      <thead className="bg-gray-50 sticky top-0 border-b border-gray-300">
-                        <tr>
-                          <th className="w-8 p-2"></th>
-                          <th className="p-2 text-left border-r border-gray-200">{noteTab === 'inbox' ? '보낸사람' : '받는사람'}</th>
-                          <th className="p-2 text-left border-r border-gray-200">제목</th>
-                          <th className="p-2 text-left">날짜/시간</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {notes.filter(n => noteTab === 'inbox' ? n.receiverIds.includes(customUser.id) : n.senderId === customUser.id).map(note => (
-                          <tr 
-                            key={note.id} 
-                            className={`border-b border-gray-100 cursor-pointer hover:bg-blue-50 ${selectedNote?.id === note.id ? 'bg-blue-100' : ''}`}
-                            onClick={() => setSelectedNote(note)}
-                          >
-                            <td className="p-2 text-center text-gray-400">★</td>
-                            <td className="p-2 border-r border-gray-100 truncate max-w-[80px]">{noteTab === 'inbox' ? note.senderName : note.receiverIds.length + '명'}</td>
-                            <td className="p-2 border-r border-gray-100 truncate max-w-[150px] font-medium">{note.title}</td>
-                            <td className="p-2 text-gray-500 whitespace-nowrap">
-                              {note.timestamp?.toDate().toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Note Detail */}
-                  <div className="flex-1 bg-white p-4 overflow-y-auto flex flex-col gap-4">
-                    {selectedNote ? (
-                      <>
-                        <div className="border-b border-gray-200 pb-2 flex justify-between items-start">
-                          <div className="flex-1">
-                            <div className="flex gap-4 mb-2">
-                              <span className="text-gray-500 w-16">제 목</span>
-                              <span className="font-bold">{selectedNote.title}</span>
-                            </div>
-                            <div className="flex gap-4 mb-2">
-                              <span className="text-gray-500 w-16">{noteTab === 'inbox' ? '보낸사람' : '받는사람'}</span>
-                              <span>{noteTab === 'inbox' ? selectedNote.senderName : selectedNote.receiverIds.join(', ')}</span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-gray-400">글자크기</span>
-                            <select 
-                              className="text-[10px] border border-gray-300 px-1 py-0.5 outline-none bg-white"
-                              value={noteFontSize}
-                              onChange={(e) => setNoteFontSize(e.target.value)}
-                            >
-                              <option value="12px">9pt</option>
-                              <option value="14px">10pt</option>
-                              <option value="16px">12pt</option>
-                              <option value="18px">14pt</option>
-                              <option value="24px">18pt</option>
-                            </select>
-                          </div>
-                        </div>
-                        <div className="flex-1 whitespace-pre-wrap leading-relaxed" style={{ fontSize: noteFontSize }}>
-                          {selectedNote.content}
-                        </div>
-                        <div className="flex justify-end gap-2 mt-auto pt-4 border-t border-gray-100">
-                          <button className="px-3 py-1 border border-gray-300 rounded text-xs hover:bg-gray-50">회신</button>
-                          <button className="px-3 py-1 border border-gray-300 rounded text-xs hover:bg-gray-50">전달</button>
-                          <button className="px-3 py-1 border border-gray-300 rounded text-xs hover:bg-gray-50">삭제</button>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="flex-1 flex items-center justify-center text-gray-300 font-bold">
-                        메시지를 선택하세요.
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
             )}
           </div>
         </div>
@@ -1128,7 +1221,166 @@ export default function App() {
 
       {/* Right Pane (Chat Area) */}
       <div className="flex-1 flex flex-col bg-white relative">
-        {activeChannelId ? (
+        {activeChannelId === 'notes_management' ? (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Note Management View */}
+            <div className="h-[60px] border-b border-gray-300 text-white flex items-center px-4 gap-2 shadow-sm" style={{ backgroundColor: themeColors[theme] }}>
+              <div className="flex items-center gap-2 mr-6">
+                <Mail size={24} />
+                <span className="font-bold text-xl tracking-tight">쪽지 관리함</span>
+              </div>
+              <div className="flex items-center h-full pt-2">
+                <div 
+                  className={`px-5 py-2 text-sm font-bold cursor-pointer rounded-t-lg transition-colors ${noteTab === 'inbox' ? 'bg-white text-gray-800' : 'hover:bg-white/10 text-white/80'}`} 
+                  onClick={() => setNoteTab('inbox')}
+                >
+                  받은 쪽지
+                </div>
+                <div 
+                  className={`px-5 py-2 text-sm font-bold cursor-pointer rounded-t-lg transition-colors ${noteTab === 'sent' ? 'bg-white text-gray-800' : 'hover:bg-white/10 text-white/80'}`} 
+                  onClick={() => setNoteTab('sent')}
+                >
+                  보낸 쪽지
+                </div>
+              </div>
+              <div className="ml-auto flex items-center gap-3">
+                <div className="relative flex items-center">
+                  <input 
+                    type="text" 
+                    placeholder="쪽지 검색..." 
+                    className="bg-white/20 text-white placeholder:text-white/60 text-xs px-4 py-2 rounded-full outline-none w-56 focus:bg-white focus:text-black focus:placeholder:text-gray-400 transition-all border border-white/10" 
+                    value={noteSearchQuery}
+                    onChange={(e) => setNoteSearchQuery(e.target.value)}
+                  />
+                  <Search size={14} className="absolute right-4 text-white/60" />
+                </div>
+                <button 
+                  className="p-2 hover:bg-white/20 rounded-full transition-colors flex items-center justify-center" 
+                  title="새 쪽지 쓰기" 
+                  onClick={() => setNoteModalOpen(true)}
+                >
+                  <Plus size={24} />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 flex overflow-hidden bg-gray-50">
+              {/* Note List */}
+              <div className="w-[450px] border-r border-gray-300 overflow-y-auto bg-white shadow-inner">
+                <table className="w-full text-sm border-collapse">
+                  <thead className="bg-gray-50 sticky top-0 border-b border-gray-300 z-10">
+                    <tr>
+                      <th className="w-10 p-3"></th>
+                      <th className="p-3 text-left border-r border-gray-200 font-bold text-gray-600">{noteTab === 'inbox' ? '보낸사람' : '받는사람'}</th>
+                      <th className="p-3 text-left border-r border-gray-200 font-bold text-gray-600">제목</th>
+                      <th className="p-3 text-left font-bold text-gray-600">날짜</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {notes.filter(n => {
+                      const isRecipient = noteTab === 'inbox' ? n.receiverIds.includes(customUser.id) : n.senderId === customUser.id;
+                      const matchesSearch = n.title.toLowerCase().includes(noteSearchQuery.toLowerCase()) || n.content.toLowerCase().includes(noteSearchQuery.toLowerCase()) || n.senderName.toLowerCase().includes(noteSearchQuery.toLowerCase());
+                      return isRecipient && matchesSearch;
+                    }).map(note => (
+                      <tr 
+                        key={note.id} 
+                        className={`border-b border-gray-100 cursor-pointer transition-colors hover:bg-blue-50 ${selectedNote?.id === note.id ? 'bg-blue-100' : ''}`}
+                        onClick={() => setSelectedNote(note)}
+                      >
+                        <td className="p-3 text-center">
+                          <Star size={14} className="text-gray-300 hover:text-yellow-400 cursor-pointer" />
+                        </td>
+                        <td className="p-3 border-r border-gray-100 truncate max-w-[100px] font-medium">
+                          {noteTab === 'inbox' ? note.senderName : `${note.receiverIds.length}명`}
+                        </td>
+                        <td className="p-3 border-r border-gray-100 truncate max-w-[200px]">
+                          {note.title}
+                        </td>
+                        <td className="p-3 text-gray-400 text-xs whitespace-nowrap">
+                          {note.timestamp?.toDate().toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                      </tr>
+                    ))}
+                    {notes.filter(n => {
+                      const isRecipient = noteTab === 'inbox' ? n.receiverIds.includes(customUser.id) : n.senderId === customUser.id;
+                      const matchesSearch = n.title.toLowerCase().includes(noteSearchQuery.toLowerCase()) || n.content.toLowerCase().includes(noteSearchQuery.toLowerCase()) || n.senderName.toLowerCase().includes(noteSearchQuery.toLowerCase());
+                      return isRecipient && matchesSearch;
+                    }).length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="p-10 text-center text-gray-400 italic">표시할 쪽지가 없습니다.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Note Detail */}
+              <div className="flex-1 bg-white p-6 overflow-y-auto flex flex-col shadow-lg m-4 rounded-lg border border-gray-200">
+                {selectedNote ? (
+                  <>
+                    <div className="border-b border-gray-200 pb-4 mb-6 flex justify-between items-start">
+                      <div className="flex-1">
+                        <h2 className="text-2xl font-bold text-gray-800 mb-4">{selectedNote.title}</h2>
+                        <div className="flex items-center gap-6 text-sm">
+                          <div className="flex gap-2">
+                            <span className="text-gray-400 font-bold">일시</span>
+                            <span className="text-gray-600">{selectedNote.timestamp?.toDate().toLocaleString()}</span>
+                          </div>
+                          <div className="flex gap-2">
+                            <span className="text-gray-400 font-bold">{noteTab === 'inbox' ? '보낸사람' : '받는사람'}</span>
+                            <span className="text-blue-600 font-bold">{noteTab === 'inbox' ? selectedNote.senderName : selectedNote.receiverIds.join(', ')}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 bg-gray-50 p-2 rounded-md border border-gray-200">
+                        <span className="text-xs text-gray-500 font-bold">글자 크기</span>
+                        <select 
+                          className="text-xs border border-gray-300 px-2 py-1 rounded outline-none bg-white font-medium"
+                          value={noteFontSize}
+                          onChange={(e) => setNoteFontSize(e.target.value)}
+                        >
+                          <option value="12px">작게 (9pt)</option>
+                          <option value="14px">보통 (10pt)</option>
+                          <option value="16px">크게 (12pt)</option>
+                          <option value="18px">매우 크게 (14pt)</option>
+                          <option value="24px">대형 (18pt)</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="flex-1 whitespace-pre-wrap leading-relaxed text-gray-700 bg-gray-50/30 p-4 rounded-md" style={{ fontSize: noteFontSize }}>
+                      {selectedNote.content}
+                    </div>
+                    <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-gray-100">
+                      <button 
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-md text-sm font-bold hover:bg-blue-600 transition-colors shadow-sm"
+                        onClick={() => handleReplyNote(selectedNote)}
+                      >
+                        <Reply size={16} /> 회신하기
+                      </button>
+                      <button 
+                        className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-md text-sm font-bold text-gray-600 hover:bg-gray-50 transition-colors"
+                        onClick={() => handleForwardNote(selectedNote)}
+                      >
+                        <Forward size={16} /> 전달
+                      </button>
+                      <button 
+                        className="flex items-center gap-2 px-4 py-2 border border-red-200 text-red-500 rounded-md text-sm font-bold hover:bg-red-50 transition-colors"
+                        onClick={() => handleDeleteNote(selectedNote.id)}
+                      >
+                        <Trash2 size={16} /> 삭제
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center text-gray-300">
+                    <Mail size={64} className="mb-4 opacity-20" />
+                    <p className="text-xl font-bold opacity-50">목록에서 쪽지를 선택하여 내용을 확인하세요.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : activeChannelId ? (
           <>
             {/* Chat Header */}
             <div className="bg-white border-b border-gray-300 py-3 px-4 font-bold text-lg shadow-sm flex items-center justify-between">
@@ -1144,7 +1396,7 @@ export default function App() {
                   <div key={msg.id} className={`flex gap-2 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
                     {!isMe && (
                       <div className="w-8 h-8 rounded-full bg-gray-200 border border-gray-300 overflow-hidden flex-shrink-0 flex items-center justify-center mt-1">
-                        {senderUser?.photo ? <img src={senderUser.photo} alt="profile" className="w-full h-full object-cover" /> : <User size={16} className="text-gray-500" />}
+                        <img src={senderUser?.photo || DEFAULT_PROFILE_PIC} alt="profile" className="w-full h-full object-cover" />
                       </div>
                     )}
                     <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group relative`}>
@@ -1266,13 +1518,39 @@ export default function App() {
         )}
       </div>
 
+      {/* Toast Notifications */}
+      <div className="fixed top-4 right-4 z-[200] flex flex-col gap-2 pointer-events-none">
+        <AnimatePresence>
+          {toasts.map(toast => (
+            <motion.div
+              key={toast.id}
+              initial={{ opacity: 0, x: 50, scale: 0.9 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white border border-gray-200 shadow-2xl rounded-lg p-4 w-72 pointer-events-auto flex gap-3 items-start border-l-4 border-blue-500"
+            >
+              <div className={`p-2 rounded-full ${toast.type === 'message' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'}`}>
+                {toast.type === 'message' ? <MessageCircle size={18} /> : <Mail size={18} />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <h4 className="text-xs font-bold text-gray-900 truncate">{toast.title}</h4>
+                <p className="text-[11px] text-gray-500 line-clamp-2 mt-0.5">{toast.body}</p>
+              </div>
+              <button onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))} className="text-gray-400 hover:text-gray-600">
+                <X size={14} />
+              </button>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+
       {/* User Selection Modal */}
       {modalType && (
-        <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-[150]">
           <div className="bg-white border border-gray-300 rounded shadow-xl w-[400px] flex flex-col max-h-[80vh]">
             <div className="flex justify-between items-center p-3 border-b border-gray-300 bg-[#3b82f6] text-white rounded-t">
               <h2 className="font-bold text-sm">
-                {modalType === '1:1' ? '1:1 채팅 대상 선택' : modalType === 'bulk' ? '단체 메시지 대상 선택' : modalType === 'forward' ? '메시지 전달 대상 선택' : '그룹 채팅 대상 선택'}
+                {modalType === '1:1' ? '1:1 채팅 대상 선택' : modalType === 'bulk' ? '단체 메시지 대상 선택' : modalType === 'forward' ? '메시지 전달 대상 선택' : modalType === 'note_receivers' ? '쪽지 대상 선택' : '그룹 채팅 대상 선택'}
               </h2>
               <button onClick={closeModal} className="hover:text-gray-200"><X size={18} /></button>
             </div>
@@ -1314,7 +1592,7 @@ export default function App() {
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-gray-500 overflow-hidden border border-gray-300">
-                        {u.photo ? <img src={u.photo} alt="profile" className="w-full h-full object-cover" /> : <User size={16} />}
+                        <img src={u.photo || DEFAULT_PROFILE_PIC} alt="profile" className="w-full h-full object-cover" />
                       </div>
                       <div className="flex flex-col">
                         <span className="font-bold text-sm">{u.name}</span>
@@ -1345,7 +1623,7 @@ export default function App() {
                 disabled={selectedUsers.length === 0 || (modalType === 'bulk' && !bulkMessageText.trim()) || (modalType === 'forward' && !forwardMessage)}
                 className="px-3 py-1.5 bg-[#3b82f6] text-white border border-[#2563eb] rounded text-xs hover:bg-blue-600 disabled:opacity-50"
               >
-                {modalType === 'bulk' ? '전송' : modalType === 'forward' ? '전달' : '채팅방 생성'}
+                {modalType === 'bulk' ? '전송' : modalType === 'forward' ? '전달' : modalType === 'note_receivers' ? '추가' : '채팅방 생성'}
               </button>
             </div>
           </div>
@@ -1367,7 +1645,7 @@ export default function App() {
 
             <div className="flex bg-[#4b5563] p-4 gap-4 items-center">
               <div className="w-16 h-16 bg-gray-300 rounded-full flex items-center justify-center overflow-hidden border-2 border-white/20">
-                <User size={40} className="text-white" />
+                <img src={customUser.photo || DEFAULT_PROFILE_PIC} alt="profile" className="w-full h-full object-cover" />
               </div>
               <div className="flex-1 flex flex-col gap-2">
                 <div className="flex items-center gap-2">
@@ -1382,7 +1660,7 @@ export default function App() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-white text-xs w-12 font-bold">받는사람</span>
-                  <div className="flex-1 bg-white border border-gray-400 px-2 py-1 text-xs min-h-[26px] flex flex-wrap gap-1 rounded-sm">
+                  <div className="flex-1 bg-white border border-gray-400 px-2 py-1 text-xs min-h-[26px] flex flex-wrap gap-1 rounded-sm items-center">
                     {noteReceivers.map(id => {
                       const u = usersList.find(ul => ul.id === id);
                       return (
@@ -1391,6 +1669,16 @@ export default function App() {
                         </span>
                       );
                     })}
+                    <button 
+                      onClick={() => {
+                        setModalType('note_receivers');
+                        setSelectedUsers([]);
+                        setUserSearchQuery('');
+                      }}
+                      className="text-gray-400 hover:text-gray-600 ml-1"
+                    >
+                      <Plus size={14} />
+                    </button>
                   </div>
                 </div>
                 <div className="flex items-center gap-4 ml-14">
@@ -1457,11 +1745,7 @@ export default function App() {
             <div className="p-4 space-y-4">
               <div className="flex justify-center mb-2">
                 <div className="w-16 h-16 rounded-full border-2 border-[#3b82f6] overflow-hidden flex items-center justify-center bg-gray-100">
-                  {profileEdit.photo ? (
-                    <img src={profileEdit.photo} alt="preview" className="w-full h-full object-cover" />
-                  ) : (
-                    <User size={32} className="text-gray-400" />
-                  )}
+                  <img src={profileEdit.photo || DEFAULT_PROFILE_PIC} alt="preview" className="w-full h-full object-cover" />
                 </div>
               </div>
               <div>

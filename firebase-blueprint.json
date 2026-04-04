@@ -27,6 +27,21 @@
         "timestamp": { "type": "string", "format": "date-time", "description": "When the message was sent." }
       },
       "required": ["text", "senderId", "senderName", "channelId", "timestamp"]
+    },
+    "Note": {
+      "title": "Note",
+      "description": "A private note sent between users.",
+      "type": "object",
+      "properties": {
+        "senderId": { "type": "string", "description": "The UID of the sender." },
+        "senderName": { "type": "string", "description": "The name of the sender." },
+        "receiverIds": { "type": "array", "items": { "type": "string" }, "description": "List of receiver UIDs." },
+        "title": { "type": "string", "description": "The title of the note." },
+        "content": { "type": "string", "description": "The content of the note." },
+        "timestamp": { "type": "string", "format": "date-time", "description": "When the note was sent." },
+        "isRead": { "type": "boolean", "description": "Whether the note has been read." }
+      },
+      "required": ["senderId", "senderName", "receiverIds", "title", "content", "timestamp"]
     }
   },
   "firestore": {
@@ -37,6 +52,10 @@
     "/messages/{messageId}": {
       "schema": { "$ref": "#/entities/Message" },
       "description": "Stores all chat messages."
+    },
+    "/notes/{noteId}": {
+      "schema": { "$ref": "#/entities/Note" },
+      "description": "Stores private notes."
     }
   }
 }

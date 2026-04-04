@@ -91,6 +91,17 @@ service cloud.firestore {
              data.timestamp is timestamp;
     }
 
+    function isValidNote(data) {
+      return hasOnlyAllowedFields(['senderId', 'senderName', 'receiverIds', 'title', 'content', 'timestamp', 'isRead']) &&
+             data.senderId is string && data.senderId.size() > 0 &&
+             data.senderName is string && data.senderName.size() > 0 &&
+             data.receiverIds is list && data.receiverIds.size() > 0 &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 100 &&
+             data.content is string && data.content.size() <= 5000 &&
+             data.timestamp is timestamp &&
+             (!('isRead' in data) || data.isRead is bool);
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -125,6 +136,21 @@ service cloud.firestore {
       // Messages cannot be updated, but can be deleted
       allow update: if false;
       allow delete: if isAuthenticated();
+    }
+
+    match /notes/{noteId} {
+      // Users can read notes if they are the sender or one of the receivers
+      allow read: if isAuthenticated() && 
+                  (request.auth.uid == resource.data.senderId || request.auth.uid in resource.data.receiverIds);
+      
+      // Anyone authenticated can create a note
+      allow create: if isAuthenticated() &&
+                    hasRequiredFields(['senderId', 'senderName', 'receiverIds', 'title', 'content', 'timestamp']) &&
+                    isValidNote(request.resource.data);
+
+      // Notes can be deleted by sender or receivers
+      allow delete: if isAuthenticated() && 
+                    (request.auth.uid == resource.data.senderId || request.auth.uid in resource.data.receiverIds);
     }
   }
 }
