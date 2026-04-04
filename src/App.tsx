@@ -640,7 +640,7 @@ export default function App() {
 
   const toggleUserSelection = (userId: string) => {
     if (modalType === '1:1') {
-      setSelectedUsers([userId]);
+      setSelectedUsers(prev => prev.includes(userId) ? [] : [userId]);
     } else {
       setSelectedUsers(prev => 
         prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
@@ -722,6 +722,8 @@ export default function App() {
       const u = usersList.find(ul => ul.name === m.name);
       return u?.id;
     }).filter(Boolean) as string[];
+
+    if (memberIds.length === 0) return;
 
     const allSelected = memberIds.every(id => selectedTreeMembers.includes(id));
     if (allSelected) {
@@ -1069,10 +1071,10 @@ export default function App() {
                     <input 
                       type="checkbox" 
                       className="w-3.5 h-3.5" 
-                      checked={Object.values(PERSONNEL_DATA).every(tab => tab.every(d => d.roles.every(r => r.members.every(m => {
-                        const u = usersList.find(ul => ul.name === m.name);
-                        return u ? selectedTreeMembers.includes(u.id) : true;
-                      }))))}
+                      checked={(() => {
+                        const ids = Object.values(PERSONNEL_DATA).flatMap(tab => tab.flatMap(d => d.roles.flatMap(r => r.members))).map(m => usersList.find(ul => ul.name === m.name)?.id).filter(Boolean) as string[];
+                        return ids.length > 0 && ids.every(id => selectedTreeMembers.includes(id));
+                      })()}
                       onChange={e => {
                         e.stopPropagation();
                         const allMembers = Object.values(PERSONNEL_DATA).flatMap(tab => tab.flatMap(d => d.roles.flatMap(r => r.members)));
@@ -1092,10 +1094,10 @@ export default function App() {
                             <input 
                               type="checkbox" 
                               className="w-3.5 h-3.5" 
-                              checked={PERSONNEL_DATA[tab].every(d => d.roles.every(r => r.members.every(m => {
-                                const u = usersList.find(ul => ul.name === m.name);
-                                return u ? selectedTreeMembers.includes(u.id) : true;
-                              })))}
+                              checked={(() => {
+                                const ids = PERSONNEL_DATA[tab].flatMap(d => d.roles.flatMap(r => r.members)).map(m => usersList.find(ul => ul.name === m.name)?.id).filter(Boolean) as string[];
+                                return ids.length > 0 && ids.every(id => selectedTreeMembers.includes(id));
+                              })()}
                               onChange={e => {
                                 e.stopPropagation();
                                 const allMembers = PERSONNEL_DATA[tab].flatMap(d => d.roles.flatMap(r => r.members));
@@ -1115,10 +1117,10 @@ export default function App() {
                                     <input 
                                       type="checkbox" 
                                       className="w-3.5 h-3.5" 
-                                      checked={dept.roles.every(r => r.members.every(m => {
-                                        const u = usersList.find(ul => ul.name === m.name);
-                                        return u ? selectedTreeMembers.includes(u.id) : true;
-                                      }))}
+                                      checked={(() => {
+                                        const ids = dept.roles.flatMap(r => r.members).map(m => usersList.find(ul => ul.name === m.name)?.id).filter(Boolean) as string[];
+                                        return ids.length > 0 && ids.every(id => selectedTreeMembers.includes(id));
+                                      })()}
                                       onChange={e => {
                                         e.stopPropagation();
                                         const allMembers = dept.roles.flatMap(r => r.members);
@@ -1139,10 +1141,10 @@ export default function App() {
                                               <input 
                                                 type="checkbox" 
                                                 className="w-3.5 h-3.5" 
-                                                checked={roleGroup.members.every(m => {
-                                                  const u = usersList.find(ul => ul.name === m.name);
-                                                  return u ? selectedTreeMembers.includes(u.id) : true;
-                                                })}
+                                                checked={(() => {
+                                                  const ids = roleGroup.members.map(m => usersList.find(ul => ul.name === m.name)?.id).filter(Boolean) as string[];
+                                                  return ids.length > 0 && ids.every(id => selectedTreeMembers.includes(id));
+                                                })()}
                                                 onChange={e => {
                                                   e.stopPropagation();
                                                   handleToggleDeptSelection(`${dept.dept}-${roleGroup.role}`, roleGroup.members);
